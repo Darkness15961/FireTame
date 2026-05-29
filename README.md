@@ -1,42 +1,180 @@
-# FireTame
+# 🔥 FireTame
 
-This template should help get you started developing with Vue 3 in Vite.
+Plataforma IoT inteligente para simulación de monitoreo y detección temprana de incendios forestales.
 
-## Recommended IDE Setup
+---
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## 📌 Descripción
 
-## Recommended Browser Setup
+**FireTame** es una aplicación frontend desarrollada con tecnologías modernas para simular una plataforma IoT de monitoreo ambiental enfocada en la detección temprana de incendios forestales.
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+El proyecto representa visualmente cómo funcionaría un ecosistema de dispositivos IoT desplegados en zonas forestales, permitiendo monitorear:
 
-## Type Support for `.vue` Imports in TS
+- temperatura ambiental
+- humedad
+- CO2/humo
+- estado de dispositivos
+- alertas inteligentes
+- análisis IA simulado
+- propagación de riesgo
+- fallas técnicas
+- conectividad de nodos
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+El sistema está orientado a la simulación visual de un centro de monitoreo profesional en tiempo real.
 
-## Customize configuration
+---
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+# 🎯 Objetivo
 
-## Project Setup
+Simular el comportamiento de una plataforma IoT avanzada para prevención y monitoreo de incendios forestales mediante dashboards interactivos, mapas dinámicos, alertas inteligentes y estados progresivos de riesgo.
 
-```sh
-bun install
-```
+---
 
-### Compile and Hot-Reload for Development
+# 🧠 Características principales
 
-```sh
-bun dev
-```
+## ✅ Dashboard en tiempo real
 
-### Type-Check, Compile and Minify for Production
+- monitoreo global
+- KPIs dinámicos
+- métricas ambientales
+- actividad del sistema
 
-```sh
-bun run build
-```
+---
+
+## 🗺️ Mapa interactivo
+
+- nodos geográficos
+- estados visuales
+- heatmaps
+- zonas críticas
+- alertas dinámicas
+
+---
+
+## 📡 Monitoreo de dispositivos IoT
+
+- dispositivos online/offline
+- health score
+- calidad de sensores
+- batería
+- señal
+- errores técnicos
+
+---
+
+## 🚨 Sistema inteligente de alertas
+
+Estados progresivos:
+
+| Estado | Descripción |
+|---|---|
+| 🟢 Verde | Funcionamiento normal |
+| 🟡 Amarillo | Observación |
+| 🟠 Naranja | Posible incendio |
+| 🔴 Rojo | Incendio confirmado |
+
+---
+
+## 🤖 IA simulada
+
+El sistema simula:
+
+- detección de humo
+- detección de fuego
+- análisis de imágenes
+- validación de eventos
+
+---
+
+## ⚠️ Detección de falsos positivos
+
+El sistema evalúa múltiples sensores antes de confirmar un incendio.
+
+### Ejemplo:
+
+- CO2 elevado
+- temperatura normal
+- humedad estable
+- IA sin detección
+
+### Resultado:
+
+- posible falso positivo
+
+---
+
+## 🧪 Panel de simulación
+
+Permite generar:
+
+- incendios
+- humo
+- nodos offline
+- fallas de sensores
+- batería baja
+- viento fuerte
+- falsos positivos
+
+---
+
+# 🏗️ Arquitectura del proyecto
+
+El proyecto está construido únicamente como frontend utilizando datos simulados/mock.
+
+## NO existe:
+
+- backend real
+- conexión MQTT
+- sensores físicos
+- IA real
+- infraestructura IoT real
+
+El objetivo es representar visualmente el funcionamiento del sistema.
+
+---
+
+# 🛠️ Tecnologías utilizadas
+
+## Frontend
+
+- Vue 3
+- Vite
+- TailwindCSS
+- Pinia
+- Vue Router
+
+---
+
+## Visualización
+
+- Leaflet
+- ApexCharts / ECharts
+
+---
+
+## UI/UX
+
+- Heroicons / Lucide Icons
+- Animaciones modernas
+- Responsive Design
+- Dark Mode
+
+---
+
+# 📂 Estructura sugerida
+
+```bash
+src/
+│
+├── assets/
+├── components/
+├── composables/
+├── layouts/
+├── router/
+├── stores/
+├── services/
+├── mock/
+├── views/
+│
+├── App.vue
+└── main.js
