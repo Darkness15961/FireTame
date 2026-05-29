@@ -14,7 +14,8 @@ import {
   Flame,
   Radio,
   Eye,
-  CheckCheck
+  CheckCheck,
+  Wrench
 } from 'lucide-vue-next'
 
 const store = useFireStore()
@@ -229,7 +230,7 @@ const dispatchDrone = (nodeName: string) => {
             <div>
               <div class="flex items-center space-x-2">
                 <span class="text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border"
-                      :class="isDark ? 'text-slate-500 bg-slate-950 border-slate-900' : 'text-slate-400 bg-slate-100 border-slate-200'">
+                      :class="isDark ? 'text-slate-500 bg-slate-950 border-slate-900' : 'text-slate-600 bg-slate-100 border-slate-200'">
                   {{ alert.id }}
                 </span>
                 <span 
@@ -290,7 +291,7 @@ const dispatchDrone = (nodeName: string) => {
               class="px-3.5 py-1.5 border rounded-lg text-[10px] font-mono uppercase transition-all duration-300 flex items-center space-x-1.5 cursor-pointer font-bold"
               :class="isDark 
                 ? 'bg-emerald-950 border-emerald-800 text-emerald-400 hover:text-white hover:bg-emerald-500/20 hover:border-emerald-500/50' 
-                : 'bg-emerald-50 border-emerald-250 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300'"
+                : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300'"
             >
               <Check class="w-3.5 h-3.5" />
               <span>Acusar Alerta (ACK)</span>
@@ -309,9 +310,10 @@ const dispatchDrone = (nodeName: string) => {
       <!-- Empty state -->
       <div 
         v-if="filteredAlerts.length === 0" 
-        class="glass-panel p-16 text-center text-slate-500 font-mono border border-dashed border-slate-800 rounded-2xl"
+        class="glass-panel p-16 text-center font-mono border border-dashed rounded-2xl animate-fade-in"
+        :class="isDark ? 'text-slate-500 border-slate-800' : 'text-slate-500 border-slate-300 shadow-sm'"
       >
-        <span class="block text-lg font-bold text-slate-400 mb-2">No hay incidentes pendientes</span>
+        <span class="block text-lg font-bold mb-2" :class="isDark ? 'text-slate-400' : 'text-slate-700'">No hay incidentes pendientes</span>
         <span>Toda la red forestal IoT de Cusco se reporta en parámetros estables.</span>
       </div>
 

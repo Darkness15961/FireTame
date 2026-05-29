@@ -15,9 +15,8 @@ onMounted(() => {
 
 <template>
   <div class="min-h-screen font-sans antialiased overflow-x-hidden
-              bg-[#020617] text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-300
-              dark:bg-[#020617] dark:text-slate-100
-              light-mode:bg-slate-100 light-mode:text-slate-800">
+              bg-[var(--bg-base)] text-[var(--text-primary)] transition-colors duration-300
+              selection:bg-cyan-500/30 selection:text-cyan-300">
     <!-- Cybernetic Sidebar Nav -->
     <Sidebar />
 

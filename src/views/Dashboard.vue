@@ -97,7 +97,7 @@ const updateMapMarkers = () => {
       marker.setPopupContent(`
         <div class="p-2 font-sans w-52">
           <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1 mb-2">
-            <span class="font-extrabold text-sm text-slate-850 dark:text-white">${node.name}</span>
+            <span class="font-extrabold text-sm text-slate-800 dark:text-white">${node.name}</span>
             <span class="text-[9px] font-mono uppercase bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-1.5 py-0.5 rounded text-cyan-600 dark:text-cyan-400 font-bold">${node.id}</span>
           </div>
           <div class="space-y-1 text-xs">

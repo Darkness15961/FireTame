@@ -141,7 +141,7 @@ const deleteNode = (id: string) => {
           <form @submit.prevent="submitDeployNode" class="space-y-4 flex-1 text-xs font-sans">
             <!-- Name -->
             <div class="space-y-1.5">
-              <label class="text-slate-450 font-bold block" :class="isDark ? 'text-slate-400' : 'text-slate-600'">Nombre de la Ubicación Forestal:</label>
+              <label class="font-bold block" :class="isDark ? 'text-slate-400' : 'text-slate-600'">Nombre de la Ubicación Forestal:</label>
               <input 
                 type="text" 
                 v-model="nodeName"
@@ -150,7 +150,7 @@ const deleteNode = (id: string) => {
                 class="w-full px-3.5 py-2.5 rounded-xl border focus:outline-none transition-all"
                 :class="isDark 
                   ? 'bg-slate-950/80 border-slate-800 focus:border-cyan-500/40 text-white placeholder-slate-600' 
-                  : 'bg-white border-slate-250 focus:border-cyan-400 text-slate-800 placeholder-slate-400'"
+                  : 'bg-white border-slate-200 focus:border-cyan-400 text-slate-800 placeholder-slate-400'"
               />
             </div>
 
@@ -166,7 +166,7 @@ const deleteNode = (id: string) => {
                   class="w-full px-3.5 py-2 rounded-xl focus:outline-none transition-all"
                   :class="isDark 
                     ? 'bg-slate-950/80 border-slate-800 focus:border-cyan-500/40 text-white' 
-                    : 'bg-white border-slate-250 focus:border-cyan-400 text-slate-800'"
+                    : 'bg-white border-slate-200 focus:border-cyan-400 text-slate-800'"
                 />
               </div>
               <div class="space-y-1.5">
@@ -179,7 +179,7 @@ const deleteNode = (id: string) => {
                   class="w-full px-3.5 py-2 rounded-xl focus:outline-none transition-all"
                   :class="isDark 
                     ? 'bg-slate-950/80 border-slate-800 focus:border-cyan-500/40 text-white' 
-                    : 'bg-white border-slate-250 focus:border-cyan-400 text-slate-800'"
+                    : 'bg-white border-slate-200 focus:border-cyan-400 text-slate-800'"
                 />
               </div>
             </div>
@@ -246,7 +246,9 @@ const deleteNode = (id: string) => {
             <span class="text-[9px] font-mono text-slate-500 uppercase">Marker Arrastrable</span>
           </div>
           <!-- Leaflet Container -->
-          <div class="flex-1 w-full rounded-xl overflow-hidden border border-slate-800/80 z-10 animate-fade-in" ref="minMapContainer"></div>
+          <div class="flex-1 w-full rounded-xl overflow-hidden border z-10 animate-fade-in"
+               :class="isDark ? 'border-slate-800' : 'border-slate-200'"
+               ref="minMapContainer"></div>
         </div>
 
       </section>
@@ -347,8 +349,8 @@ const deleteNode = (id: string) => {
                       :class="isDark ? 'hover:bg-slate-900 text-slate-500 hover:text-white' : 'hover:bg-slate-200 text-slate-500 hover:text-slate-900'"
                       :title="node.techStatus === 'offline' ? 'Reconectar Enlace' : 'Forzar Desconexión (Offline)'"
                     >
-                      <ToggleRight class="w-5.5 h-5.5 text-emerald-450" v-if="node.techStatus !== 'offline'" />
-                      <ToggleLeft class="w-5.5 h-5.5 text-red-450 animate-pulse" v-else />
+                      <ToggleRight class="w-5.5 h-5.5 text-emerald-500" v-if="node.techStatus !== 'offline'" />
+                      <ToggleLeft class="w-5.5 h-5.5 text-red-500 animate-pulse" v-else />
                     </button>
 
                     <!-- Delete button -->

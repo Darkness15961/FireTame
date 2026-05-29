@@ -158,7 +158,8 @@ const singleChartSeries = computed(() => {
               <Camera class="w-4 h-4 text-cyan-500" />
               <span>TRANSMISIÓN FLIR TÉRMICA EN TIEMPO REAL</span>
             </span>
-            <div class="h-64 rounded-xl overflow-hidden border border-slate-800">
+            <div class="h-64 rounded-xl overflow-hidden border"
+                 :class="isDark ? 'border-slate-800' : 'border-slate-200'">
               <AICamera :node="node" />
             </div>
           </div>
@@ -171,15 +172,15 @@ const singleChartSeries = computed(() => {
             </span>
             
             <div class="space-y-2.5 font-mono text-xs">
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Módulo Core</span> <span class="text-white">ESP32-S3 RISC-V Dual</span></div>
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Frecuencia CPU</span> <span class="text-white">240 MHz (Low Power)</span></div>
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Dirección MAC</span> <span class="text-white">74:E8:92:DF:{{ node.id.replace('-','') }}:AB</span></div>
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Firmware OS</span> <span class="text-cyan-400 font-bold">FireTame IoT v4.1.6</span></div>
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Voltaje Panel</span> <span class="text-white">4.82 V [SOLAR COMPAT]</span></div>
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Corriente Panel</span> <span class="text-white">185 mA [CARGANDO]</span></div>
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Potencia Emisión</span> <span class="text-white">+14 dBm [Transceptor RF]</span></div>
-              <div class="flex justify-between border-b border-slate-900 pb-1.5"><span class="text-slate-500">Memoria FLASH</span> <span class="text-white">32.4% Utilizada</span></div>
-              <div class="flex justify-between"><span class="text-slate-500">Diagnóstico Enlace</span> <span class="text-emerald-400 font-bold flex items-center space-x-1"><ShieldCheck class="w-3.5 h-3.5 mr-1" /><span>SISTEMA OK</span></span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Módulo Core</span> <span class="text-slate-800 dark:text-white font-semibold">ESP32-S3 RISC-V Dual</span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Frecuencia CPU</span> <span class="text-slate-800 dark:text-white font-semibold">240 MHz (Low Power)</span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Dirección MAC</span> <span class="text-slate-800 dark:text-white font-semibold">74:E8:92:DF:{{ node.id.replace('-','') }}:AB</span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Firmware OS</span> <span class="text-cyan-600 dark:text-cyan-400 font-bold">FireTame IoT v4.1.6</span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Voltaje Panel</span> <span class="text-slate-800 dark:text-white font-semibold">4.82 V [SOLAR COMPAT]</span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Corriente Panel</span> <span class="text-slate-800 dark:text-white font-semibold">185 mA [CARGANDO]</span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Potencia Emisión</span> <span class="text-slate-800 dark:text-white font-semibold">+14 dBm [Transceptor RF]</span></div>
+              <div class="flex justify-between border-b pb-1.5" :class="isDark ? 'border-slate-900' : 'border-slate-200'"><span class="text-slate-500 dark:text-slate-400">Memoria FLASH</span> <span class="text-slate-800 dark:text-white font-semibold">32.4% Utilizada</span></div>
+              <div class="flex justify-between"><span class="text-slate-500 dark:text-slate-400">Diagnóstico Enlace</span> <span class="text-emerald-600 dark:text-emerald-400 font-bold flex items-center space-x-1"><ShieldCheck class="w-3.5 h-3.5 mr-1" /><span>SISTEMA OK</span></span></div>
             </div>
           </div>
         </div>
@@ -197,64 +198,71 @@ const singleChartSeries = computed(() => {
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 text-center">
               
               <!-- Thermo Gauge -->
-              <div class="bg-slate-950/40 p-4 rounded-2xl border border-slate-900 flex flex-col items-center justify-between">
-                <span class="text-slate-500 text-[10px] font-mono uppercase tracking-wider block">Temperatura</span>
-                <span class="text-2xl font-extrabold text-white mt-3 block"
-                      :class="node.telemetry.temperature > 45 ? 'text-red-400 animate-pulse' : 'text-white'">
+              <div class="p-4 rounded-2xl border flex flex-col items-center justify-between"
+                   :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
+                <span class="text-slate-500 dark:text-slate-400 text-[10px] font-mono uppercase tracking-wider block font-bold">Temperatura</span>
+                <span class="text-2xl font-extrabold mt-3 block animate-fade-in"
+                      :class="node.telemetry.temperature > 45 ? 'text-red-500 animate-pulse' : 'text-slate-800 dark:text-white'">
                   {{ node.telemetry.temperature }}°C
                 </span>
-                <span class="text-[9px] font-mono text-slate-600 block mt-2">Umbral Crit: 55°C</span>
+                <span class="text-[9px] font-mono text-slate-500 dark:text-slate-500 block mt-2">Umbral Crit: 55°C</span>
               </div>
 
               <!-- Humidity Gauge -->
-              <div class="bg-slate-950/40 p-4 rounded-2xl border border-slate-900 flex flex-col items-center justify-between">
-                <span class="text-slate-500 text-[10px] font-mono uppercase tracking-wider block">Humedad</span>
-                <span class="text-2xl font-extrabold text-white mt-3 block"
-                      :class="node.telemetry.humidity < 25 ? 'text-red-400 animate-pulse' : 'text-white'">
+              <div class="p-4 rounded-2xl border flex flex-col items-center justify-between"
+                   :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
+                <span class="text-slate-500 dark:text-slate-400 text-[10px] font-mono uppercase tracking-wider block font-bold">Humedad</span>
+                <span class="text-2xl font-extrabold mt-3 block animate-fade-in"
+                      :class="node.telemetry.humidity < 25 ? 'text-red-500 animate-pulse' : 'text-slate-800 dark:text-white'">
                   {{ node.telemetry.humidity }}%
                 </span>
-                <span class="text-[9px] font-mono text-slate-600 block mt-2">Umbral Crit: &lt;20%</span>
+                <span class="text-[9px] font-mono text-slate-500 dark:text-slate-500 block mt-2">Umbral Crit: &lt;20%</span>
               </div>
 
               <!-- Carbon Monoxide CO2 -->
-              <div class="bg-slate-950/40 p-4 rounded-2xl border border-slate-900 flex flex-col items-center justify-between">
-                <span class="text-slate-500 text-[10px] font-mono uppercase tracking-wider block">Química CO2</span>
-                <span class="text-2xl font-extrabold mt-3 block"
-                      :class="node.telemetry.co2 > 800 ? 'text-red-400 animate-pulse font-bold' : node.telemetry.co2 > 500 ? 'text-orange-400' : 'text-white'">
+              <div class="p-4 rounded-2xl border flex flex-col items-center justify-between"
+                   :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
+                <span class="text-slate-500 dark:text-slate-400 text-[10px] font-mono uppercase tracking-wider block font-bold">Química CO2</span>
+                <span class="text-2xl font-extrabold mt-3 block animate-fade-in"
+                      :class="node.telemetry.co2 > 800 ? 'text-red-500 animate-pulse font-bold' : node.telemetry.co2 > 500 ? 'text-orange-500 dark:text-orange-400' : 'text-slate-800 dark:text-white'">
                   {{ node.telemetry.co2 }} ppm
                 </span>
-                <span class="text-[9px] font-mono text-slate-600 block mt-2">Umbral Crit: 850ppm</span>
+                <span class="text-[9px] font-mono text-slate-500 dark:text-slate-500 block mt-2">Umbral Crit: 850ppm</span>
               </div>
 
               <!-- Particulates PM2.5 -->
-              <div class="bg-slate-950/40 p-4 rounded-2xl border border-slate-900 flex flex-col items-center justify-between">
-                <span class="text-slate-500 text-[10px] font-mono uppercase tracking-wider block">Partículas</span>
-                <span class="text-2xl font-extrabold text-white mt-3 block"
-                      :class="node.telemetry.pm25 > 120 ? 'text-red-400 animate-pulse' : 'text-white'">
+              <div class="p-4 rounded-2xl border flex flex-col items-center justify-between"
+                   :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
+                <span class="text-slate-500 dark:text-slate-400 text-[10px] font-mono uppercase tracking-wider block font-bold">Partículas</span>
+                <span class="text-2xl font-extrabold mt-3 block animate-fade-in"
+                      :class="node.telemetry.pm25 > 120 ? 'text-red-500 animate-pulse' : 'text-slate-800 dark:text-white'">
                   {{ node.telemetry.pm25 }} µg
                 </span>
-                <span class="text-[9px] font-mono text-slate-600 block mt-2">Umbral Crit: 120µg</span>
+                <span class="text-[9px] font-mono text-slate-500 dark:text-slate-500 block mt-2">Umbral Crit: 120µg</span>
               </div>
 
             </div>
 
             <!-- Wind vector speed and direction -->
-            <div class="mt-4 p-4 bg-slate-950/40 border border-slate-900 rounded-2xl flex items-center justify-between">
+            <div class="mt-4 p-4 rounded-2xl border flex items-center justify-between"
+                 :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
               <div class="flex items-center space-x-3.5">
-                <div class="p-3 bg-cyan-950/50 rounded-xl border border-cyan-800/40">
-                  <Wind class="w-5 h-5 text-cyan-400" />
+                <div class="p-3 rounded-xl border"
+                     :class="isDark ? 'bg-cyan-950/50 border-cyan-800/40' : 'bg-cyan-50 border-cyan-200'">
+                  <Wind class="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
                 </div>
                 <div>
-                  <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest block">Vector Viento</span>
-                  <span class="text-sm font-extrabold text-white mt-0.5 block">
+                  <span class="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase tracking-widest block font-bold">Vector Viento</span>
+                  <span class="text-sm font-extrabold text-slate-800 dark:text-white mt-0.5 block animate-fade-in">
                     {{ node.telemetry.windSpeed }} km/h
                   </span>
                 </div>
               </div>
               
               <div class="flex items-center space-x-3">
-                <span class="text-[10px] font-mono text-slate-500 uppercase">DIRECCIÓN:</span>
-                <span class="font-mono font-extrabold text-sm text-cyan-400 bg-slate-900 px-3 py-1 rounded border border-slate-800">
+                <span class="text-[10px] font-mono text-slate-500 dark:text-slate-400 uppercase font-bold">DIRECCIÓN:</span>
+                <span class="font-mono font-extrabold text-sm px-3 py-1 rounded border animate-fade-in"
+                      :class="isDark ? 'text-cyan-400 bg-slate-900 border-slate-800' : 'text-cyan-600 bg-slate-50 border-slate-300 font-bold'">
                   {{ node.telemetry.windDirection }}
                 </span>
               </div>
@@ -329,7 +337,8 @@ const singleChartSeries = computed(() => {
           <span class="text-[10px] font-mono text-slate-500 uppercase">Muestreo: Cada 3 segundos</span>
         </div>
 
-        <div class="bg-slate-950/40 p-4 rounded-2xl border border-slate-900">
+        <div class="p-4 rounded-2xl border"
+             :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
           <apexchart 
             type="area" 
             height="260" 
@@ -353,22 +362,23 @@ const singleChartSeries = computed(() => {
           <div 
             v-for="log in nodeLogs" 
             :key="log.id"
-            class="p-2 rounded-lg bg-slate-950/80 border border-slate-900/60 flex items-start space-x-2"
+            class="p-2 rounded-lg flex items-start space-x-2 border"
+            :class="isDark ? 'bg-slate-950/80 border-slate-900/60' : 'bg-white border-slate-200 shadow-sm'"
           >
-            <span class="text-slate-500 select-none text-[9.5px] font-bold">[{{ log.timestamp }}]</span>
+            <span class="text-slate-500 dark:text-slate-500 select-none text-[9.5px] font-bold">[{{ log.timestamp }}]</span>
             <div class="flex-1">
               <span 
                 :class="{
-                  'text-cyan-400 font-bold': log.type === 'info',
-                  'text-amber-400 font-bold': log.type === 'warning',
-                  'text-red-400 font-bold animate-pulse': log.type === 'error',
-                  'text-emerald-400 font-bold': log.type === 'success'
+                  'text-cyan-600 dark:text-cyan-400 font-bold': log.type === 'info',
+                  'text-amber-600 dark:text-amber-400 font-bold': log.type === 'warning',
+                  'text-red-600 dark:text-red-400 font-bold animate-pulse': log.type === 'error',
+                  'text-emerald-600 dark:text-emerald-400 font-bold': log.type === 'success'
                 }"
                 class="uppercase tracking-wider mr-1"
               >
                 {{ log.type }}:
               </span>
-              <span class="text-slate-300 leading-relaxed">{{ log.message }}</span>
+              <span class="text-slate-700 dark:text-slate-300 leading-relaxed font-sans">{{ log.message }}</span>
             </div>
           </div>
 

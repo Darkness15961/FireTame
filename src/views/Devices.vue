@@ -185,8 +185,8 @@ const navigateToDetail = (id: string) => {
           <!-- Header -->
           <div class="flex justify-between items-start">
             <div>
-              <span class="text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border"
-                    :class="isDark ? 'text-slate-500 bg-slate-950 border-slate-900' : 'text-slate-400 bg-slate-100 border-slate-200'">
+              <span class="text-[9px] font-mono font-bold tracking-widest px-2 py-0.5 rounded border shadow-sm"
+                    :class="isDark ? 'text-slate-500 bg-slate-950 border-slate-900' : 'text-slate-600 bg-slate-100 border-slate-200'">
                 {{ node.id }}
               </span>
               <h3 class="text-md font-extrabold mt-1.5 truncate max-w-[170px]"
@@ -299,11 +299,11 @@ const navigateToDetail = (id: string) => {
                :class="isDark ? 'border-slate-900' : 'border-slate-200'">
             <div class="flex items-center justify-between text-[10px] font-mono text-secondary">
               <div class="flex items-center space-x-1.5">
-                <Battery class="w-3.5 h-3.5" :class="node.battery < 20 ? 'text-red-400 animate-pulse' : 'text-slate-400'" />
-                <span :class="node.battery < 20 ? 'text-red-400 font-bold' : ''">Bat Solar: {{ node.battery }}%</span>
+                <Battery class="w-3.5 h-3.5" :class="node.battery < 20 ? 'text-red-500 animate-pulse' : 'text-slate-500 dark:text-slate-400'" />
+                <span :class="node.battery < 20 ? 'text-red-500 font-bold' : ''">Bat Solar: {{ node.battery }}%</span>
               </div>
               <div class="flex items-center space-x-1.5">
-                <Wifi class="w-3.5 h-3.5 text-slate-400" />
+                <Wifi class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
                 <span>Señal: {{ node.signalStrength }}%</span>
               </div>
             </div>
@@ -331,7 +331,7 @@ const navigateToDetail = (id: string) => {
           <!-- Hover Overlay button to open Digital Twin details -->
           <div class="absolute inset-0 backdrop-blur-sm opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center space-y-3 transition-opacity duration-300 rounded-2xl z-20"
                :class="isDark ? 'bg-slate-950/80' : 'bg-white/80'">
-            <span class="text-xs font-mono" :class="isDark ? 'text-slate-400' : 'text-slate-500'">TELEMETRÍA COMPLETA NODO</span>
+            <span class="text-xs font-mono font-bold" :class="isDark ? 'text-slate-400' : 'text-slate-600'">TELEMETRÍA COMPLETA NODO</span>
             <button 
               @click="navigateToDetail(node.id)"
               class="px-5 py-2.5 bg-cyan-950 border border-cyan-800/80 hover:bg-cyan-500/20 text-cyan-400 hover:text-white rounded-xl text-xs font-mono font-bold tracking-wide uppercase transition-all duration-300 flex items-center space-x-2 shadow-glow-cyan cursor-pointer"
