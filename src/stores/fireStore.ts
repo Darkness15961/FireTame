@@ -1,5 +1,15 @@
 import { defineStore } from 'pinia'
 import { supabase } from '@/supabase'
+import type { Mpu6050Readings } from '@/constants/sensors'
+import { EMPTY_MPU, parseMpuFromRow, SENSOR_TYPES } from '@/constants/sensors'
+import { isNodeOnline, isNodeConnected } from '@/constants/connection'
+import { fetchNodosDashboard, fetchNodoDetalle, createNodo, updateNodoEstado, deleteNodo as deleteNodoDb } from '@/services/nodosService'
+import { fetchNodeHistory } from '@/services/lecturasService'
+import { fetchAlertasActivas } from '@/services/alertasService'
+import { fetchEventosRecientes } from '@/services/eventosService'
+import { fetchResumenGlobal } from '@/services/resumenService'
+import type { DbNodoDashboard, DbNodoDetalle, DbResumenGlobal } from '@/types/database'
+import { formatTime } from '@/utils/format'
 
 
 // Types
@@ -13,6 +23,7 @@ export interface TelemetryReadings {
   pm25: number
   windSpeed: number
   windDirection: string
+  mpu: Mpu6050Readings
 }
 
 export interface SensorHealth {
@@ -54,6 +65,7 @@ export interface IoTNode {
   healthScore: number // Calculated percentage
   history: NodeHistoryEntry[]
   lastConnection: string
+  lastReadingAt: string | null
   falsePositiveActive: boolean
   isSimulatingFire: boolean
   fireSimStep: number
@@ -77,7 +89,147 @@ export interface SystemLog {
   message: string
 }
 
-const WIND_DIRECTIONS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+function parseUbicacion(ubicacion: string | null): { lat: number; lng: number } {
+  const [latStr, lngStr] = (ubicacion || '').split(',')
+  return {
+    lat: parseFloat(latStr ?? '') || -13.5,
+    lng: parseFloat(lngStr ?? '') || -71.9,
+  }
+}
+
+function sensorStatus(value: number | null | undefined): 'OK' | 'ERR' {
+  return value != null ? 'OK' : 'ERR'
+}
+
+/** Compatibilidad: nodos en memoria (HMR) pueden no tener `telemetry.mpu` */
+function ensureMpu(node: IoTNode) {
+  if (node.telemetry.mpu) return
+  const legacy = node.telemetry as TelemetryReadings & { accelX?: number }
+  node.telemetry.mpu = {
+    accX: legacy.accelX ?? null,
+    accY: null,
+    accZ: null,
+    gyroX: null,
+    gyroY: null,
+    gyroZ: null,
+  }
+}
+
+function applyMpuReading(node: IoTNode, sensorTypeId: number, val: number) {
+  ensureMpu(node)
+  if (sensorTypeId === SENSOR_TYPES.ACELEROMETRO_X) node.telemetry.mpu.accX = val
+  else if (sensorTypeId === SENSOR_TYPES.ACELEROMETRO_Y) node.telemetry.mpu.accY = val
+  else if (sensorTypeId === SENSOR_TYPES.ACELEROMETRO_Z) node.telemetry.mpu.accZ = val
+  else if (sensorTypeId === SENSOR_TYPES.GIROSCOPIO_X) node.telemetry.mpu.gyroX = val
+  else if (sensorTypeId === SENSOR_TYPES.GIROSCOPIO_Y) node.telemetry.mpu.gyroY = val
+  else if (sensorTypeId === SENSOR_TYPES.GIROSCOPIO_Z) node.telemetry.mpu.gyroZ = val
+}
+
+function resolveOnlineStatus(row: {
+  en_linea?: boolean | null
+  ultima_lectura_at?: string | null
+}): TechStatus {
+  if (row.en_linea != null) return row.en_linea ? 'online' : 'offline'
+  return isNodeOnline(row.ultima_lectura_at) ? 'online' : 'offline'
+}
+
+function mapDashboardToNode(row: DbNodoDashboard): IoTNode {
+  const { lat, lng } = parseUbicacion(row.ubicacion)
+  const online = resolveOnlineStatus(row)
+  return {
+    id: row.nodo_id,
+    name: row.nombre,
+    lat,
+    lng,
+    riskStatus: 'green',
+    techStatus: online,
+    sensorsHealth: {
+      temperature: sensorStatus(row.temperatura),
+      humidity: sensorStatus(row.humedad),
+      co2: sensorStatus(row.co2),
+      pm25: sensorStatus(row.pm25),
+      camera: 'ERR',
+    },
+    telemetry: {
+      temperature: row.temperatura ?? 0,
+      humidity: row.humedad ?? 0,
+      co2: row.co2 ?? 0,
+      pm25: row.pm25 ?? 0,
+      windSpeed: 0,
+      windDirection: 'N',
+      mpu: parseMpuFromRow(row),
+    },
+    aiCamera: {
+      state: 'idle',
+      confidence: 0,
+      streamActive: false,
+      thermalHotspots: [],
+      classification: 'NO THREAT',
+    },
+    battery: 0,
+    signalStrength: online === 'online' ? 100 : 0,
+    healthScore: 100,
+    history: [],
+    lastReadingAt: row.ultima_lectura_at ?? null,
+    lastConnection: row.ultima_lectura_at
+      ? formatTime(row.ultima_lectura_at)
+      : row.ultima_conexion
+        ? formatTime(row.ultima_conexion)
+        : '—',
+    falsePositiveActive: false,
+    isSimulatingFire: false,
+    fireSimStep: 0,
+  }
+}
+
+function applyDetalleToNode(node: IoTNode, det: DbNodoDetalle) {
+  ensureMpu(node)
+  if (det.temperatura != null) node.telemetry.temperature = det.temperatura
+  if (det.humedad != null) node.telemetry.humidity = det.humedad
+  if (det.co2 != null) node.telemetry.co2 = det.co2
+  if (det.pm25 != null) node.telemetry.pm25 = det.pm25
+  if (det.acc_x != null) node.telemetry.mpu.accX = det.acc_x
+  if (det.acc_y != null) node.telemetry.mpu.accY = det.acc_y
+  if (det.acc_z != null) node.telemetry.mpu.accZ = det.acc_z
+  if (det.gyro_x != null) node.telemetry.mpu.gyroX = det.gyro_x
+  if (det.gyro_y != null) node.telemetry.mpu.gyroY = det.gyro_y
+  if (det.gyro_z != null) node.telemetry.mpu.gyroZ = det.gyro_z
+
+  node.sensorsHealth.temperature = sensorStatus(det.temperatura)
+  node.sensorsHealth.humidity = sensorStatus(det.humedad)
+  node.sensorsHealth.co2 = sensorStatus(det.co2)
+  node.sensorsHealth.pm25 = sensorStatus(det.pm25)
+
+  const online = isNodeOnline(node.lastReadingAt)
+  node.techStatus = online ? 'online' : 'offline'
+  node.signalStrength = online ? 100 : 0
+  node.lastConnection = node.lastReadingAt
+    ? formatTime(node.lastReadingAt)
+    : det.ultima_conexion
+      ? formatTime(det.ultima_conexion)
+      : node.lastConnection
+
+  if (det.vision_deteccion != null || det.vision_estado != null) {
+    applyVisionToNode(node, {
+      deteccion: det.vision_deteccion,
+      confianza: det.vision_confianza,
+      estado: det.vision_estado,
+    })
+    node.sensorsHealth.camera = 'OK'
+  }
+}
+
+function applyVisionToNode(
+  node: IoTNode,
+  det: { deteccion: string | null; confianza: number | null; estado: number | null }
+) {
+  const stateVal = det.estado ?? 0
+  node.aiCamera.state = stateVal === 2 ? 'alert' : stateVal === 1 ? 'processing' : 'idle'
+  node.aiCamera.confidence = det.confianza ?? 0
+  node.aiCamera.classification =
+    det.deteccion === 'smoke' ? 'SMOKE DETECTED' : det.deteccion === 'fire' ? 'FIRE DETECTED' : 'NO THREAT'
+  node.aiCamera.streamActive = stateVal > 0
+}
 
 export const useFireStore = defineStore('fireStore', {
   state: () => ({
@@ -85,9 +237,16 @@ export const useFireStore = defineStore('fireStore', {
     alerts: [] as Alert[],
     logs: [] as SystemLog[],
     selectedNodeId: null as string | null,
-    globalWindAlert: false, // Simulates strong wind across Cusco
+    globalWindAlert: false,
     initializing: false,
-    simulationInterval: null as any | null,
+    resumen: {
+      total_nodos: 0,
+      nodos_online: 0,
+      nodos_offline: 0,
+      alertas_activas: 0,
+      temp_promedio: null,
+      ultima_lectura_at: null,
+    } as DbResumenGlobal,
   }),
 
   getters: {
@@ -98,11 +257,11 @@ export const useFireStore = defineStore('fireStore', {
     },
     
     connectedNodesCount(): number {
-      return this.nodes.filter((n) => n.techStatus !== 'offline').length
+      return this.nodes.filter((n) => isNodeConnected(n)).length
     },
     
     offlineNodesCount(): number {
-      return this.nodes.filter((n) => n.techStatus === 'offline').length
+      return this.nodes.filter((n) => !isNodeConnected(n)).length
     },
     
     activeAlertsCount(): number {
@@ -135,453 +294,280 @@ export const useFireStore = defineStore('fireStore', {
 
   actions: {
     async initializeStore() {
-      // Prevent double init concurrency race conditions
       if (this.nodes.length > 0 || this.initializing) return
       this.initializing = true
 
       try {
-        // Try fetching registered nodes from Supabase
-        const { data: nodesData, error } = await supabase.from('nodos').select('*')
-        
-        if (error) {
-          console.error('Error fetching nodes from Supabase:', error)
-          this.loadMockNodes()
-        } else if (nodesData && nodesData.length > 0) {
-          this.nodes = nodesData.map((dbNode) => {
-            // Parse ubicacion "lat,lng"
-            const [latStr, lngStr] = (dbNode.ubicacion || '').split(',')
-            const lat = parseFloat(latStr) || -13.5
-            const lng = parseFloat(lngStr) || -71.9
-            
-            const baseTemp = 16 + Math.random() * 6
-            const baseHum = 50 + Math.random() * 12
-            
-            return {
-              id: dbNode.id,
-              name: dbNode.nombre,
-              lat,
-              lng,
-              riskStatus: 'green',
-              techStatus: dbNode.estado === 1 ? 'online' : 'offline',
-              sensorsHealth: {
-                temperature: 'OK',
-                humidity: 'OK',
-                co2: 'OK',
-                pm25: 'OK',
-                camera: 'OK'
-              },
-              telemetry: {
-                temperature: parseFloat(baseTemp.toFixed(1)),
-                humidity: parseFloat(baseHum.toFixed(1)),
-                co2: 400,
-                pm25: 10,
-                windSpeed: 8 + Math.random() * 8,
-                windDirection: WIND_DIRECTIONS[Math.floor(Math.random() * WIND_DIRECTIONS.length)] || 'N'
-              },
-              aiCamera: {
-                state: 'idle',
-                confidence: 0,
-                streamActive: false,
-                thermalHotspots: [],
-                classification: 'NO THREAT'
-              },
-              battery: 100,
-              signalStrength: 100,
-              healthScore: 100,
-              history: [],
-              lastConnection: dbNode.ultima_conexion ? new Date(dbNode.ultima_conexion).toLocaleTimeString() : new Date().toLocaleTimeString(),
-              falsePositiveActive: false,
-              isSimulatingFire: false,
-              fireSimStep: 0
-            }
-          })
-          
-          // Seed the history buffer for the loaded nodes initially
-          this.nodes.forEach((node) => {
-            const now = new Date()
-            for (let i = 19; i >= 0; i--) {
-              const entryTime = new Date(now.getTime() - i * 60000)
-              node.history.push({
-                timestamp: entryTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                temperature: parseFloat((node.telemetry.temperature + (Math.random() * 2 - 1)).toFixed(1)),
-                humidity: parseFloat((node.telemetry.humidity + (Math.random() * 4 - 2)).toFixed(1)),
-                co2: Math.round(node.telemetry.co2 + (Math.random() * 10 - 5)),
-                pm25: Math.round(node.telemetry.pm25 + (Math.random() * 4 - 2))
-              })
-            }
-            node.healthScore = this.calculateNodeHealth(node)
-          })
+        const [dashboard, resumen] = await Promise.all([
+          fetchNodosDashboard(),
+          fetchResumenGlobal(),
+        ])
+        this.resumen = resumen
+        this.nodes = dashboard.map(mapDashboardToNode)
+        this.nodes.forEach(ensureMpu)
 
-          // Hydrate node metrics with latest records from database
-          await this.loadInitialReadings()
-        } else {
-          // Empty table fallback
-          this.loadMockNodes()
-        }
+        await Promise.all(this.nodes.map((node) => this.hydrateNode(node)))
+        this.syncResumenCounts()
+        await this.loadAlertsFromDb()
+        await this.loadLogsFromDb()
       } catch (err) {
-        console.error('Error connecting to Supabase, falling back to simulator:', err)
-        this.loadMockNodes()
-      }
-
-      finally {
+        console.error('Error connecting to Supabase:', err)
+        this.nodes = []
+      } finally {
         this.initializing = false
       }
 
-      // Select first node as active selected node by default
       if (this.nodes.length > 0) {
-        this.selectedNodeId = this.nodes[0]?.id || null
+        this.selectedNodeId = this.nodes[0]?.id ?? null
       }
 
       this.addLog('info', 'Sistema de Monitoreo Centralizado FireTame inicializado.')
-      this.addLog('success', `Se han desplegado y conectado ${this.nodes.length} nodos de monitoreo en Cusco.`)
+      if (this.nodes.length > 0) {
+        this.addLog('success', `Conectados ${this.nodes.length} nodos desde Supabase.`)
+      } else {
+        this.addLog('warning', 'No hay nodos registrados en la base de datos.')
+      }
 
-      // Start Realtime subscriptions
       this.subscribeRealtime()
-
-      // Spawn periodic simulator clock (every 3 seconds)
-      this.startSimulator()
+      this.startConnectionWatcher()
     },
 
-    loadMockNodes() {
-      const initialNodesData = [
-        { id: 'MP-01', name: 'Machu Picchu (Santuario)', lat: -13.1631, lng: -72.5450 },
-        { id: 'SH-02', name: 'Sacsayhuamán (Fortaleza)', lat: -13.5079, lng: -71.9820 },
-        { id: 'OT-03', name: 'Ollantaytambo (Parque)', lat: -13.2584, lng: -72.2634 },
-        { id: 'PS-04', name: 'Písac (Complejo Histórico)', lat: -13.4219, lng: -71.8504 },
-        { id: 'CQ-05', name: 'Choquequirao (Cuna del Sol)', lat: -13.3917, lng: -72.8732 },
-        { id: 'UR-06', name: 'Urubamba (Valle Forestal)', lat: -13.3039, lng: -72.1158 },
-        { id: 'CL-07', name: 'Calca (Bosque Alto)', lat: -13.3198, lng: -71.9525 },
-        { id: 'CH-08', name: 'Chinchero (Meseta Andina)', lat: -13.3913, lng: -72.0494 }
-      ]
-
-      this.nodes = initialNodesData.map((data) => {
-        const baseTemp = 16 + Math.random() * 6
-        const baseHum = 50 + Math.random() * 12
-        const baseCO2 = 380 + Math.random() * 15
-        const basePM25 = 8 + Math.random() * 5
-        const baseWind = 8 + Math.random() * 8
-        const baseWindDir = WIND_DIRECTIONS[Math.floor(Math.random() * WIND_DIRECTIONS.length)] || 'N'
-
-        const node: IoTNode = {
-          id: data.id,
-          name: data.name,
-          lat: data.lat,
-          lng: data.lng,
-          riskStatus: 'green',
-          techStatus: 'online',
-          sensorsHealth: {
-            temperature: 'OK',
-            humidity: 'OK',
-            co2: 'OK',
-            pm25: 'OK',
-            camera: 'OK'
-          },
-          telemetry: {
-            temperature: parseFloat(baseTemp.toFixed(1)),
-            humidity: parseFloat(baseHum.toFixed(1)),
-            co2: Math.round(baseCO2),
-            pm25: Math.round(basePM25),
-            windSpeed: parseFloat(baseWind.toFixed(1)),
-            windDirection: baseWindDir
-          },
-          aiCamera: {
-            state: 'idle',
-            confidence: 0,
-            streamActive: false,
-            thermalHotspots: [],
-            classification: 'NO THREAT'
-          },
-          battery: Math.round(85 + Math.random() * 15),
-          signalStrength: Math.round(75 + Math.random() * 20),
-          healthScore: 100,
-          history: [],
-          lastConnection: new Date().toLocaleTimeString(),
-          falsePositiveActive: false,
-          isSimulatingFire: false,
-          fireSimStep: 0
-        }
-
-        const now = new Date()
-        for (let i = 19; i >= 0; i--) {
-          const entryTime = new Date(now.getTime() - i * 60000)
-          node.history.push({
-            timestamp: entryTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            temperature: parseFloat((node.telemetry.temperature + (Math.random() * 2 - 1)).toFixed(1)),
-            humidity: parseFloat((node.telemetry.humidity + (Math.random() * 4 - 2)).toFixed(1)),
-            co2: Math.round(node.telemetry.co2 + (Math.random() * 10 - 5)),
-            pm25: Math.round(node.telemetry.pm25 + (Math.random() * 4 - 2))
-          })
-        }
-        
-        node.healthScore = this.calculateNodeHealth(node)
-        return node
-      })
-    },
-
-    async loadInitialReadings() {
-      for (const node of this.nodes) {
-        try {
-          // Fetch last 20 temperature readings
-          const { data: tempReadings } = await supabase
-            .from('lecturas_sensores')
-            .select('valor, created_at')
-            .eq('nodo_id', node.id)
-            .eq('tipo_sensor_id', 1)
-            .order('created_at', { ascending: false })
-            .limit(20)
-
-          // Fetch last 20 humidity readings
-          const { data: humReadings } = await supabase
-            .from('lecturas_sensores')
-            .select('valor, created_at')
-            .eq('nodo_id', node.id)
-            .eq('tipo_sensor_id', 2)
-            .order('created_at', { ascending: false })
-            .limit(20)
-
-          if (tempReadings && tempReadings.length > 0 && tempReadings[0]) {
-            node.telemetry.temperature = tempReadings[0].valor
-          }
-          if (humReadings && humReadings.length > 0 && humReadings[0]) {
-            node.telemetry.humidity = humReadings[0].valor
-          }
-
-          // Hydrate history
-          const historyLength = Math.max(tempReadings?.length || 0, humReadings?.length || 0)
-          if (historyLength > 0) {
-            const newHistory: NodeHistoryEntry[] = []
-            for (let i = historyLength - 1; i >= 0; i--) {
-              const tempEntry = tempReadings?.[i]
-              const humEntry = humReadings?.[i]
-              const timeStr = tempEntry 
-                ? new Date(tempEntry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-                : (humEntry ? new Date(humEntry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '')
-              
-              newHistory.push({
-                timestamp: timeStr,
-                temperature: tempEntry ? tempEntry.valor : node.telemetry.temperature,
-                humidity: humEntry ? humEntry.valor : node.telemetry.humidity,
-                co2: node.telemetry.co2,
-                pm25: node.telemetry.pm25
-              })
-            }
-            node.history = newHistory
-          }
-
-          // Fetch last vision_ai status
-          const { data: visionData } = await supabase
-            .from('vision_ai')
-            .select('deteccion, confianza, estado, created_at')
-            .eq('nodo_id', node.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-
-          if (visionData && visionData.length > 0 && visionData[0]) {
-            const det = visionData[0]
-            const stateVal = det.estado || 0
-            node.aiCamera.state = stateVal === 2 ? 'alert' : (stateVal === 1 ? 'processing' : 'idle')
-            node.aiCamera.confidence = det.confianza || 0
-            node.aiCamera.classification = det.deteccion === 'smoke' ? 'SMOKE DETECTED' : 'NO THREAT'
-            node.aiCamera.streamActive = stateVal > 0
-          }
-
+    startConnectionWatcher() {
+      setInterval(() => {
+        let changed = false
+        for (const node of this.nodes) {
+          const wasConnected = isNodeConnected(node)
+          const nowConnected = node.techStatus !== 'offline' && isNodeOnline(node.lastReadingAt)
+          if (wasConnected === nowConnected) continue
+          node.techStatus = nowConnected ? 'online' : 'offline'
+          node.signalStrength = nowConnected ? 100 : 0
           node.healthScore = this.calculateNodeHealth(node)
-          this.evaluateNodeRisk(node)
-        } catch (e) {
-          console.error(`Error loading initial readings for node ${node.id}:`, e)
+          changed = true
         }
+        if (changed) this.syncResumenCounts()
+      }, 30_000)
+    },
+
+    async refreshNode(nodeId: string) {
+      let node = this.nodes.find((n) => n.id === nodeId)
+      if (!node) {
+        const detalle = await fetchNodoDetalle(nodeId)
+        if (!detalle) return
+        node = mapDashboardToNode({
+          nodo_id: detalle.nodo_id,
+          nombre: detalle.nombre,
+          ubicacion: detalle.ubicacion,
+          estado: detalle.estado,
+          ultima_conexion: detalle.ultima_conexion,
+          temperatura: detalle.temperatura,
+          humedad: detalle.humedad,
+          co2: detalle.co2,
+          pm25: detalle.pm25,
+          acc_x: detalle.acc_x,
+          acc_y: detalle.acc_y,
+          acc_z: detalle.acc_z,
+          gyro_x: detalle.gyro_x,
+          gyro_y: detalle.gyro_y,
+          gyro_z: detalle.gyro_z,
+        })
+        this.nodes.push(node)
+      }
+      await this.hydrateNode(node)
+      this.selectedNodeId = nodeId
+    },
+
+    async refreshFromServer() {
+      this.nodes = []
+      this.initializing = false
+      await this.initializeStore()
+    },
+
+    async hydrateNode(node: IoTNode) {
+      try {
+        const [detalle, history] = await Promise.all([
+          fetchNodoDetalle(node.id),
+          fetchNodeHistory(node.id, 20),
+        ])
+
+        if (detalle) applyDetalleToNode(node, detalle)
+
+        if (history.length > 0) {
+          const lastEntry = history[history.length - 1]
+          if (lastEntry) {
+            node.lastReadingAt = lastEntry.created_at
+            node.techStatus = isNodeOnline(lastEntry.created_at) ? 'online' : 'offline'
+            node.signalStrength = node.techStatus === 'online' ? 100 : 0
+          }
+
+          node.history = history.map((entry) => ({
+            timestamp: formatTime(entry.created_at),
+            temperature: entry.temperatura ?? node.telemetry.temperature,
+            humidity: entry.humedad ?? node.telemetry.humidity,
+            co2: entry.co2 ?? node.telemetry.co2,
+            pm25: entry.pm25 ?? node.telemetry.pm25,
+          }))
+        }
+
+        this.evaluateNodeRisk(node)
+        node.healthScore = this.calculateNodeHealth(node)
+      } catch (e) {
+        console.error(`Error hydrating node ${node.id}:`, e)
+      }
+    },
+
+    syncResumenCounts() {
+      this.resumen.total_nodos = this.nodes.length
+      this.resumen.nodos_online = this.connectedNodesCount
+      this.resumen.nodos_offline = this.offlineNodesCount
+    },
+
+    async refreshResumen() {
+      try {
+        this.resumen = await fetchResumenGlobal()
+      } catch (e) {
+        console.error('Error refreshing resumen:', e)
+      }
+    },
+
+    async loadAlertsFromDb() {
+      try {
+        const alertas = await fetchAlertasActivas()
+        this.alerts = alertas.map((a) => {
+          const node = this.nodes.find((n) => n.id === a.nodo_id)
+          return {
+            id: `DB-${a.id}`,
+            nodeId: a.nodo_id,
+            nodeName: node?.name ?? 'Nodo desconocido',
+            severity: (a.nivel as Alert['severity']) ?? 'medium',
+            type: 'smoke' as const,
+            message: a.mensaje ?? '',
+            timestamp: formatTime(a.created_at),
+            acknowledged: a.estado === 1,
+          }
+        })
+      } catch (e) {
+        console.error('Error loading alerts:', e)
+      }
+    },
+
+    async loadLogsFromDb() {
+      try {
+        const eventos = await fetchEventosRecientes(50)
+        this.logs = eventos.map((e) => ({
+          id: `DB-${e.id}`,
+          timestamp: formatTime(e.created_at),
+          type: e.estado === 2 ? 'error' : e.estado === 1 ? 'warning' : 'info',
+          message: e.mensaje ?? '',
+        }))
+      } catch (e) {
+        console.error('Error loading eventos:', e)
       }
     },
 
     subscribeRealtime() {
-      // Subscribe to all changes in a single channel
       supabase.channel('db-changes')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'lecturas_sensores' },
-          (payload) => {
-            const node = this.nodes.find(n => n.id === payload.new.nodo_id)
-            if (node) {
-              const val = payload.new.valor
-              const sensorTypeId = payload.new.tipo_sensor_id
-              const timeStr = new Date(payload.new.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+          (payload: { new: Record<string, unknown> }) => {
+            const nodoId = payload.new.nodo_id as string
+            const node = this.nodes.find((n) => n.id === nodoId)
+            if (!node) return
 
-              if (sensorTypeId === 1) {
-                node.telemetry.temperature = val
-              } else if (sensorTypeId === 2) {
-                node.telemetry.humidity = val
-              } else if (sensorTypeId === 8) {
-                this.addLog('info', `[${node.name}] MPU6050 Aceleración X recibida: ${val}`)
-              }
+            ensureMpu(node)
 
-              // Append history entry
-              node.history.push({
-                timestamp: timeStr,
-                temperature: node.telemetry.temperature,
-                humidity: node.telemetry.humidity,
-                co2: node.telemetry.co2,
-                pm25: node.telemetry.pm25
-              })
-              if (node.history.length > 20) {
-                node.history.shift()
-              }
+            const val = payload.new.valor as number
+            const sensorTypeId = payload.new.tipo_sensor_id as number
+            const timeStr = formatTime(payload.new.created_at as string)
+            const readingAt = payload.new.created_at as string
 
-              node.lastConnection = timeStr
-              this.evaluateNodeRisk(node)
-              node.healthScore = this.calculateNodeHealth(node)
+            if (sensorTypeId === SENSOR_TYPES.TEMPERATURA) {
+              node.telemetry.temperature = val
+            } else if (sensorTypeId === SENSOR_TYPES.HUMEDAD) {
+              node.telemetry.humidity = val
+            } else if (sensorTypeId === SENSOR_TYPES.CO2) {
+              node.telemetry.co2 = val
+            } else if (sensorTypeId === SENSOR_TYPES.PM25) {
+              node.telemetry.pm25 = val
+            } else if (
+              sensorTypeId === SENSOR_TYPES.ACELEROMETRO_X ||
+              sensorTypeId === SENSOR_TYPES.ACELEROMETRO_Y ||
+              sensorTypeId === SENSOR_TYPES.ACELEROMETRO_Z ||
+              sensorTypeId === SENSOR_TYPES.GIROSCOPIO_X ||
+              sensorTypeId === SENSOR_TYPES.GIROSCOPIO_Y ||
+              sensorTypeId === SENSOR_TYPES.GIROSCOPIO_Z
+            ) {
+              applyMpuReading(node, sensorTypeId, val)
             }
+
+            node.history.push({
+              timestamp: timeStr,
+              temperature: node.telemetry.temperature,
+              humidity: node.telemetry.humidity,
+              co2: node.telemetry.co2,
+              pm25: node.telemetry.pm25,
+            })
+            if (node.history.length > 20) node.history.shift()
+
+            node.lastConnection = timeStr
+            node.lastReadingAt = readingAt
+            node.techStatus = 'online'
+            node.signalStrength = 100
+            this.evaluateNodeRisk(node)
+            node.healthScore = this.calculateNodeHealth(node)
+            this.syncResumenCounts()
+            this.refreshResumen()
           }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'vision_ai' },
-          (payload) => {
+          (payload: { new: Record<string, unknown> }) => {
             const node = this.nodes.find(n => n.id === payload.new.nodo_id)
-            if (node) {
-              const stateVal = payload.new.estado || 0
-              node.aiCamera.state = stateVal === 2 ? 'alert' : (stateVal === 1 ? 'processing' : 'idle')
-              node.aiCamera.confidence = payload.new.confianza || 0
-              node.aiCamera.classification = payload.new.deteccion === 'smoke' ? 'SMOKE DETECTED' : 'NO THREAT'
-              node.aiCamera.streamActive = stateVal > 0
+            if (!node) return
 
-              this.evaluateNodeRisk(node)
-              node.healthScore = this.calculateNodeHealth(node)
+            applyVisionToNode(node, {
+              deteccion: payload.new.deteccion as string | null,
+              confianza: payload.new.confianza as number | null,
+              estado: payload.new.estado as number | null,
+            })
 
-              this.addLog(
-                stateVal === 2 ? 'error' : (stateVal === 1 ? 'warning' : 'success'),
-                `[${node.name}] Visión IA reporta: ${payload.new.deteccion === 'smoke' ? 'HUMO' : 'NORMAL'} con confianza de ${payload.new.confianza}`
-              )
-            }
+            this.evaluateNodeRisk(node)
+            node.healthScore = this.calculateNodeHealth(node)
+
+            const stateVal = payload.new.estado ?? 0
+            this.addLog(
+              stateVal === 2 ? 'error' : stateVal === 1 ? 'warning' : 'success',
+              `[${node.name}] Visión IA: ${payload.new.deteccion === 'smoke' ? 'HUMO' : 'NORMAL'} (${payload.new.confianza}%)`
+            )
           }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'eventos' },
-          (payload) => {
-            const type = payload.new.estado === 2 ? 'error' : (payload.new.estado === 1 ? 'warning' : 'info')
-            this.addLog(type as any, payload.new.mensaje)
+          (payload: { new: Record<string, unknown> }) => {
+            const type = payload.new.estado === 2 ? 'error' : payload.new.estado === 1 ? 'warning' : 'info'
+            this.addLog(type as SystemLog['type'], payload.new.mensaje as string)
           }
         )
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'alertas' },
-          (payload) => {
+          (payload: { new: Record<string, unknown> }) => {
             const node = this.nodes.find(n => n.id === payload.new.nodo_id)
             this.alerts.unshift({
               id: `DB-${payload.new.id}`,
-              nodeId: payload.new.nodo_id,
-              nodeName: node ? node.name : 'Nodo desconocido',
-              severity: payload.new.nivel || 'medium',
+              nodeId: payload.new.nodo_id as string,
+              nodeName: node?.name ?? 'Nodo desconocido',
+              severity: (payload.new.nivel as Alert['severity']) ?? 'medium',
               type: 'smoke',
-              message: payload.new.mensaje,
-              timestamp: new Date(payload.new.created_at).toLocaleTimeString(),
-              acknowledged: payload.new.estado === 1
+              message: payload.new.mensaje as string,
+              timestamp: formatTime(payload.new.created_at as string),
+              acknowledged: payload.new.estado === 1,
             })
           }
         )
         .subscribe()
-    },
-
-
-    startSimulator() {
-      if (this.simulationInterval) clearInterval(this.simulationInterval)
-
-      this.simulationInterval = setInterval(() => {
-        this.nodes.forEach((node) => {
-          // Skip telemetry updates if offline
-          if (node.techStatus === 'offline') {
-            node.healthScore = 0
-            return
-          }
-
-          // Step-by-step custom fire simulations
-          if (node.isSimulatingFire) {
-            this.handleFireSimulationStep(node)
-          } else {
-            // Apply slight telemetry fluctuations (jitter) to make the metrics look real-time
-            this.applySensorFluctuations(node)
-          }
-
-          // Evaluate risk level & trigger states programmatically
-          this.evaluateNodeRisk(node)
-
-          // Calculate node general technical health
-          node.healthScore = this.calculateNodeHealth(node)
-
-          // Record latest historical reading log for charts
-          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-          node.history.push({
-            timestamp: timeStr,
-            temperature: node.telemetry.temperature,
-            humidity: node.telemetry.humidity,
-            co2: node.telemetry.co2,
-            pm25: node.telemetry.pm25
-          })
-
-          // Maintain historical buffer size of 20
-          if (node.history.length > 20) {
-            node.history.shift()
-          }
-
-          node.lastConnection = timeStr
-        })
-      }, 3000)
-    },
-
-    applySensorFluctuations(node: IoTNode) {
-      // Skips fluctuations if technical freeze
-      if (node.techStatus === 'sensor_error') {
-        // Simulates sensor frozen reading (no fluctuation)
-        return
-      }
-
-      if (node.id === 'nodo_01B') {
-        // For physical node, only apply slight fluctuations to missing metrics
-        // (CO2 and PM2.5, which are not currently reported by the physical hardware)
-        const co2Fluct = Math.round(Math.random() * 4 - 2)
-        const pmFluct = Math.round(Math.random() * 2 - 1)
-        
-        if (node.sensorsHealth.co2 === 'OK') {
-          node.telemetry.co2 = Math.round(Math.max(380, Math.min(450, node.telemetry.co2 + co2Fluct)))
-        }
-        if (node.sensorsHealth.pm25 === 'OK') {
-          node.telemetry.pm25 = Math.round(Math.max(5, Math.min(20, node.telemetry.pm25 + pmFluct)))
-        }
-        
-        // Slight changes to signal strength and battery
-        node.signalStrength = Math.max(80, Math.min(100, node.signalStrength + Math.round(Math.random() * 2 - 1)))
-        return
-      }
-
-      const tempFluct = (Math.random() * 0.4 - 0.2)
-      const humFluct = (Math.random() * 0.8 - 0.4)
-      const co2Fluct = Math.round(Math.random() * 4 - 2)
-      const pmFluct = Math.round(Math.random() * 2 - 1)
-
-      // Apply changes while preventing out-of-bounds metrics
-      if (node.sensorsHealth.temperature === 'OK') {
-        node.telemetry.temperature = parseFloat(Math.max(0, Math.min(85, node.telemetry.temperature + tempFluct)).toFixed(1))
-      }
-      if (node.sensorsHealth.humidity === 'OK') {
-        node.telemetry.humidity = parseFloat(Math.max(0, Math.min(100, node.telemetry.humidity + humFluct)).toFixed(1))
-      }
-      if (node.sensorsHealth.co2 === 'OK') {
-        node.telemetry.co2 = Math.round(Math.max(300, Math.min(2500, node.telemetry.co2 + co2Fluct)))
-      }
-      if (node.sensorsHealth.pm25 === 'OK') {
-        node.telemetry.pm25 = Math.round(Math.max(0, Math.min(500, node.telemetry.pm25 + pmFluct)))
-      }
-
-      // Fluctuating Battery (discharges 1% over time, recharged by solar during check sometimes)
-      const isRecharging = Math.random() > 0.4
-      if (isRecharging && node.battery < 100) {
-        node.battery = Math.min(100, node.battery + 1)
-      } else if (!isRecharging && node.battery > 5) {
-        node.battery = Math.max(0, node.battery - 1)
-      }
-
-      // Random signal fluctuations
-      node.signalStrength = Math.max(10, Math.min(100, node.signalStrength + Math.round(Math.random() * 6 - 3)))
     },
 
     evaluateNodeRisk(node: IoTNode) {
@@ -744,28 +730,11 @@ export const useFireStore = defineStore('fireStore', {
     },
 
     calculateNodeHealth(node: IoTNode): number {
-      if (node.techStatus === 'offline') return 0
+      if (!isNodeConnected(node) && node.techStatus === 'offline') return 0
+      if (!isNodeOnline(node.lastReadingAt)) return 20
 
       let score = 100
 
-      // Connection penalty
-      if (node.signalStrength < 30) {
-        score -= 20
-        node.techStatus = 'signal_weak'
-      } else if (node.signalStrength < 50) {
-        score -= 10
-      }
-
-      // Battery penalty
-      if (node.battery <= 5) {
-        score -= 50
-        node.techStatus = 'low_battery'
-      } else if (node.battery <= 20) {
-        score -= 25
-        node.techStatus = 'low_battery'
-      }
-
-      // Dead sensor penalties
       let sensorErrCount = 0
       Object.keys(node.sensorsHealth).forEach((key) => {
         if (node.sensorsHealth[key as keyof SensorHealth] === 'ERR') {
@@ -776,7 +745,7 @@ export const useFireStore = defineStore('fireStore', {
 
       if (sensorErrCount > 0) {
         node.techStatus = 'sensor_error'
-      } else if (node.battery > 20 && node.signalStrength >= 50) {
+      } else if (node.techStatus !== 'offline') {
         node.techStatus = 'online'
       }
 
@@ -805,8 +774,30 @@ export const useFireStore = defineStore('fireStore', {
       node.isSimulatingFire = true
       node.fireSimStep = 1
       this.handleFireSimulationStep(node)
+      this.startSimulationTick()
 
-      this.addLog('error', `🚨 SIMULACIÓN DE INCENDIO forestal iniciada en el nodo [${node.name}]. Iniciando validación progresiva...`)
+      this.addLog('error', `Simulación de incendio iniciada en [${node.name}].`)
+    },
+
+    startSimulationTick() {
+      if ((this as { _simTick?: ReturnType<typeof setInterval> })._simTick) return
+
+      ;(this as { _simTick?: ReturnType<typeof setInterval> })._simTick = setInterval(() => {
+        let active = false
+        for (const node of this.nodes) {
+          if (node.isSimulatingFire) {
+            active = true
+            this.handleFireSimulationStep(node)
+            this.evaluateNodeRisk(node)
+            node.healthScore = this.calculateNodeHealth(node)
+          }
+        }
+        if (!active) {
+          const tick = (this as { _simTick?: ReturnType<typeof setInterval> })._simTick
+          if (tick) clearInterval(tick)
+          ;(this as { _simTick?: ReturnType<typeof setInterval> })._simTick = undefined
+        }
+      }, 3000)
     },
 
     handleFireSimulationStep(node: IoTNode) {
@@ -944,46 +935,21 @@ export const useFireStore = defineStore('fireStore', {
       }
     },
 
-    restoreNodeNormalState(nodeId: string) {
+    async restoreNodeNormalState(nodeId: string) {
       const node = this.nodes.find((n) => n.id === nodeId)
       if (!node) return
 
-      this.restoreNodeHardward(node)
-      
       node.isSimulatingFire = false
       node.fireSimStep = 0
       node.falsePositiveActive = false
 
-      // Gradually ease environmental metrics to safe values
-      node.telemetry.temperature = parseFloat((17 + Math.random() * 5).toFixed(1))
-      node.telemetry.humidity = parseFloat((52 + Math.random() * 6).toFixed(1))
-      node.telemetry.co2 = Math.round(380 + Math.random() * 15)
-      node.telemetry.pm25 = Math.round(8 + Math.random() * 4)
-      if (this.globalWindAlert) {
-        node.telemetry.windSpeed = parseFloat((55 + Math.random() * 15).toFixed(1))
-      } else {
-        node.telemetry.windSpeed = parseFloat((6 + Math.random() * 8).toFixed(1))
-      }
+      await this.hydrateNode(node)
 
-      // Reset AI Camera
-      node.aiCamera.state = 'idle'
-      node.aiCamera.confidence = 0
-      node.aiCamera.streamActive = false
-      node.aiCamera.thermalHotspots = []
-      node.aiCamera.classification = 'NO THREAT'
-
-      // Force instant risk recheck
-      this.evaluateNodeRisk(node)
-      node.healthScore = this.calculateNodeHealth(node)
-
-      // Automatically acknowledge alerts related to this node
       this.alerts.forEach((alert) => {
-        if (alert.nodeId === nodeId) {
-          alert.acknowledged = true
-        }
+        if (alert.nodeId === nodeId) alert.acknowledged = true
       })
 
-      this.addLog('success', `Nodo [${node.name}] restablecido por completo. Telemetría y hardware calibrados a estado basal.`)
+      this.addLog('success', `Nodo [${node.name}] restablecido con datos reales de Supabase.`)
     },
 
     restoreAllNodesNormal() {
@@ -1007,21 +973,28 @@ export const useFireStore = defineStore('fireStore', {
       node.signalStrength = Math.round(75 + Math.random() * 20)
     },
 
-    // Administrative Actions (Node management CRUD-like simulation)
-    addCustomNode(name: string, lat: number, lng: number, installedSensors: string[]) {
-      const id = `CN-${Math.floor(10 + Math.random() * 89)}`
-      
-      const baseTemp = 15 + Math.random() * 7
-      const baseHum = 48 + Math.random() * 15
-      const baseCO2 = 380 + Math.random() * 10
-      const basePM25 = 7 + Math.random() * 6
+    // Administrative Actions
+    async addCustomNode(name: string, lat: number, lng: number, installedSensors: string[]) {
+      const id = `nodo_${Date.now().toString(36)}`
 
       const sensorsHealthObj: SensorHealth = {
         temperature: installedSensors.includes('temperature') ? 'OK' : 'ERR',
         humidity: installedSensors.includes('humidity') ? 'OK' : 'ERR',
         co2: installedSensors.includes('co2') ? 'OK' : 'ERR',
         pm25: installedSensors.includes('pm25') ? 'OK' : 'ERR',
-        camera: installedSensors.includes('camera') ? 'OK' : 'ERR'
+        camera: installedSensors.includes('camera') ? 'OK' : 'ERR',
+      }
+
+      try {
+        await createNodo({
+          id,
+          nombre: name,
+          ubicacion: `${lat},${lng}`,
+        })
+      } catch (e) {
+        console.error('Error creating node in Supabase:', e)
+        this.addLog('error', `Error al registrar nodo [${name}] en Supabase.`)
+        return
       }
 
       const node: IoTNode = {
@@ -1033,80 +1006,85 @@ export const useFireStore = defineStore('fireStore', {
         techStatus: 'online',
         sensorsHealth: sensorsHealthObj,
         telemetry: {
-          temperature: parseFloat(baseTemp.toFixed(1)),
-          humidity: parseFloat(baseHum.toFixed(1)),
-          co2: Math.round(baseCO2),
-          pm25: Math.round(basePM25),
-          windSpeed: parseFloat((5 + Math.random() * 10).toFixed(1)),
-          windDirection: WIND_DIRECTIONS[Math.floor(Math.random() * WIND_DIRECTIONS.length)] || 'N'
+          temperature: 0,
+          humidity: 0,
+          co2: 0,
+          pm25: 0,
+          windSpeed: 0,
+          windDirection: 'N',
+          mpu: EMPTY_MPU,
         },
         aiCamera: {
           state: 'idle',
           confidence: 0,
           streamActive: false,
           thermalHotspots: [],
-          classification: 'NO THREAT'
+          classification: 'NO THREAT',
         },
-        battery: 100,
-        signalStrength: Math.round(80 + Math.random() * 20),
+        battery: 0,
+        signalStrength: 100,
         healthScore: 100,
         history: [],
-        lastConnection: new Date().toLocaleTimeString(),
+        lastReadingAt: null,
+        lastConnection: formatTime(new Date().toISOString()),
         falsePositiveActive: false,
         isSimulatingFire: false,
-        fireSimStep: 0
-      }
-
-      // Prehydrate history
-      const now = new Date()
-      for (let i = 19; i >= 0; i--) {
-        const entryTime = new Date(now.getTime() - i * 60000)
-        node.history.push({
-          timestamp: entryTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          temperature: parseFloat((node.telemetry.temperature + (Math.random() * 2 - 1)).toFixed(1)),
-          humidity: parseFloat((node.telemetry.humidity + (Math.random() * 4 - 2)).toFixed(1)),
-          co2: Math.round(node.telemetry.co2 + (Math.random() * 10 - 5)),
-          pm25: Math.round(node.telemetry.pm25 + (Math.random() * 4 - 2))
-        })
+        fireSimStep: 0,
       }
 
       node.healthScore = this.calculateNodeHealth(node)
-      
       this.nodes.push(node)
-      this.selectedNodeId = node.id // Focus on newly registered node
-      
-      this.addLog('success', `💾 REGISTRO EXITOSO: Depliegue físico completado para [${name}] con ID [${id}] en coordenadas (${lat.toFixed(4)}, ${lng.toFixed(4)}).`)
+      this.selectedNodeId = node.id
+
+      this.addLog('success', `Nodo [${name}] registrado en Supabase con ID [${id}].`)
     },
 
-    toggleNodeActive(nodeId: string) {
+    async toggleNodeActive(nodeId: string) {
       const node = this.nodes.find((n) => n.id === nodeId)
       if (!node) return
 
-      if (node.techStatus === 'offline') {
+      const newEstado = node.techStatus === 'offline' ? 1 : 0
+
+      try {
+        await updateNodoEstado(nodeId, newEstado)
+      } catch (e) {
+        console.error('Error updating node estado:', e)
+        return
+      }
+
+      if (newEstado === 1) {
         this.restoreNodeHardward(node)
-        this.addLog('success', `NODO ACTIVADO: Se reestableció la alimentación eléctrica del nodo [${node.name}].`)
+        this.addLog('success', `Nodo [${node.name}] activado.`)
       } else {
         node.techStatus = 'offline'
         node.signalStrength = 0
-        node.battery = 0
         node.aiCamera.streamActive = false
         node.aiCamera.state = 'error'
-        this.addLog('warning', `NODO DESACTIVADO: Dispositivo [${node.name}] puesto en modo inactivo manualmente.`)
+        this.addLog('warning', `Nodo [${node.name}] desactivado.`)
       }
     },
 
-    deleteNode(nodeId: string) {
+    async deleteNode(nodeId: string) {
       const index = this.nodes.findIndex((n) => n.id === nodeId)
       if (index === -1) return
-      
-      const nodeName = this.nodes[index]?.name || ''
-      this.nodes.splice(index, 1)
-      
-      if (this.selectedNodeId === nodeId) {
-        this.selectedNodeId = this.nodes.length > 0 ? (this.nodes[0]?.id || null) : null
+
+      const nodeName = this.nodes[index]?.name ?? ''
+
+      try {
+        await deleteNodoDb(nodeId)
+      } catch (e) {
+        console.error('Error deleting node:', e)
+        this.addLog('error', `Error al eliminar nodo [${nodeName}] de Supabase.`)
+        return
       }
 
-      this.addLog('error', `🗑️ NODO REMOVIDO: Dispositivo [${nodeName}] ha sido desinstalado de la red de monitoreo forestal.`)
+      this.nodes.splice(index, 1)
+
+      if (this.selectedNodeId === nodeId) {
+        this.selectedNodeId = this.nodes.length > 0 ? (this.nodes[0]?.id ?? null) : null
+      }
+
+      this.addLog('error', `Nodo [${nodeName}] eliminado de la red.`)
     },
 
     // Alerts Management
@@ -1130,7 +1108,7 @@ export const useFireStore = defineStore('fireStore', {
         severity,
         type,
         message,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: formatTime(new Date().toISOString()),
         acknowledged: false
       }
 
@@ -1160,7 +1138,7 @@ export const useFireStore = defineStore('fireStore', {
     addLog(type: SystemLog['type'], message: string) {
       const newLog: SystemLog = {
         id: `LOG-${Math.floor(10000 + Math.random() * 89999)}`,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: formatTime(new Date().toISOString()),
         type,
         message
       }

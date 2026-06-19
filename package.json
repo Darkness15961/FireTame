@@ -21,6 +21,7 @@
     "vue3-apexcharts": "^1.11.1"
   },
   "devDependencies": {
+    "@rolldown/binding-linux-x64-gnu": "^1.1.2",
     "@tsconfig/node24": "^24.0.4",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^24.12.2",
