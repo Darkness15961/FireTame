@@ -11,6 +11,7 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
     "apexcharts": "^5.13.0",
     "leaflet": "^1.9.4",
     "lucide-vue-next": "^1.0.0",
