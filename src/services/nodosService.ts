@@ -1,5 +1,5 @@
 import { supabase } from '@/supabase'
-import type { DbNodo, DbNodoDashboard, DbNodoDetalle } from '@/types/database'
+import type { DbNodo, DbNodoDashboard } from '@/types/database'
 
 export async function fetchNodos(): Promise<DbNodo[]> {
   const { data, error } = await supabase
@@ -12,22 +12,23 @@ export async function fetchNodos(): Promise<DbNodo[]> {
 }
 
 export async function fetchNodosDashboard(): Promise<DbNodoDashboard[]> {
-  const { data, error } = await supabase.rpc('get_nodos_dashboard')
+  const { data, error } = await supabase
+    .from('nodos_heltec_dashboard')
+    .select('*')
+    .order('nombre')
+
   if (error) throw error
   return (data ?? []) as DbNodoDashboard[]
-}
-
-export async function fetchNodoDetalle(nodoId: string): Promise<DbNodoDetalle | null> {
-  const { data, error } = await supabase.rpc('get_nodo_detalle', { p_nodo_id: nodoId })
-  if (error) throw error
-  const row = Array.isArray(data) ? data[0] : data
-  return (row as DbNodoDetalle) ?? null
 }
 
 export async function createNodo(payload: {
   id: string
   nombre: string
   ubicacion: string
+  lat: number
+  lng: number
+  ttn_device_id?: string
+  deveui?: string
   descripcion?: string
 }): Promise<DbNodo> {
   const { data, error } = await supabase
@@ -36,8 +37,13 @@ export async function createNodo(payload: {
       id: payload.id,
       nombre: payload.nombre,
       ubicacion: payload.ubicacion,
+      lat: payload.lat,
+      lng: payload.lng,
+      ttn_device_id: payload.ttn_device_id || null,
+      deveui: payload.deveui?.replace(/[:-]/g, '').toUpperCase() || null,
       descripcion: payload.descripcion ?? null,
       estado: 1,
+      status: 'active',
     })
     .select()
     .single()
@@ -49,7 +55,11 @@ export async function createNodo(payload: {
 export async function updateNodoEstado(id: string, estado: number): Promise<void> {
   const { error } = await supabase
     .from('nodos')
-    .update({ estado, ultima_conexion: new Date().toISOString() })
+    .update({
+      estado,
+      status: estado === 1 ? 'active' : 'inactive',
+      ultima_conexion: new Date().toISOString(),
+    })
     .eq('id', id)
 
   if (error) throw error

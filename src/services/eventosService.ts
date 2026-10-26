@@ -1,8 +1,4 @@
-import { supabase } from '@/supabase'
-import type { DbEvento } from '@/types/database'
-
-export async function fetchEventosRecientes(limit = 50): Promise<DbEvento[]> {
-  const { data, error } = await supabase.rpc('get_eventos_recientes', { p_limit: limit })
-  if (error) throw error
-  return (data ?? []) as DbEvento[]
+/** Eventos de sistema se derivan de risk_events en el store. Legacy RPC no se usa. */
+export async function fetchEventosRecientes(_limit = 50): Promise<[]> {
+  return []
 }

@@ -4,7 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useFireStore } from '@/stores/fireStore'
 import SensorCard from '@/components/SensorCard.vue'
 import { useTheme } from '@/composables/useTheme'
-import { formatValue, riskLabel } from '@/utils/format'
+import { formatDateTime, formatDeveui, formatRelative, formatValue, riskLabel } from '@/utils/format'
+import { useNow } from '@/composables/useNow'
+import InfoTip from '@/components/InfoTip.vue'
+import { SENSOR_INFO } from '@/constants/sensors'
 import { connectionLabel, isNodeConnected } from '@/constants/connection'
 import apexchart from 'vue3-apexcharts'
 import Mpu6050Panel from '@/components/Mpu6050Panel.vue'
@@ -22,6 +25,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useFireStore()
 const { isDark } = useTheme()
+const now = useNow()
 
 const nodeId = computed(() => route.params.id as string)
 const node = computed(() => store.nodes.find((n) => n.id === nodeId.value) ?? null)
@@ -46,6 +50,7 @@ const chartOptions = computed(() => ({
   xaxis: {
     categories: node.value?.history.map((h) => h.timestamp) ?? [],
     labels: { style: { fontSize: '9px' } },
+    tooltip: { enabled: false },
   },
   legend: { fontSize: '11px' },
   tooltip: { theme: isDark.value ? 'dark' as const : 'light' as const },
@@ -54,14 +59,15 @@ const chartOptions = computed(() => ({
 const chartSeries = computed(() => {
   if (!node.value?.history.length) return []
   const series = [
-    { name: 'Temperatura (°C)', data: node.value.history.map((h) => h.temperature) },
+    { name: 'Temperatura DHT (°C)', data: node.value.history.map((h) => h.tempDht) },
     { name: 'Humedad (%)', data: node.value.history.map((h) => h.humidity) },
+    { name: 'MQ135 (ADC)', data: node.value.history.map((h) => h.mq135Adc) },
   ]
   return series
 })
 
 const ubicacion = computed(() => {
-  if (!node.value) return '—'
+  if (!node.value || node.value.lat == null || node.value.lng == null) return 'Sin coordenadas registradas'
   return `${node.value.lat.toFixed(4)}, ${node.value.lng.toFixed(4)}`
 })
 
@@ -76,8 +82,7 @@ const nodeLogs = computed(() =>
 
 <template>
   <div
-    class="lg:pl-72 min-h-screen bg-cyber-grid pb-12 pt-20 lg:pt-6 transition-colors duration-300"
-    :class="isDark ? 'bg-[#030712]' : 'bg-slate-100'"
+    class="lg:pl-72 min-h-screen pb-12 pt-20 lg:pt-6 bg-[var(--bg-base)]"
   >
     <div v-if="node" class="px-4 lg:px-8 space-y-6">
 
@@ -91,8 +96,9 @@ const nodeLogs = computed(() =>
             <ArrowLeft class="w-4 h-4" />
           </button>
           <div>
-            <p class="text-[10px] font-mono text-cyan-500 font-bold uppercase">{{ node.id }}</p>
+            <p class="text-[10px] font-mono text-cyan-500 font-bold uppercase">{{ node.ttnDeviceId || node.id }}</p>
             <h1 class="text-2xl font-extrabold" :class="isDark ? 'text-white' : 'text-slate-900'">{{ node.name }}</h1>
+            <p class="text-[11px] font-mono text-slate-500">DevEUI {{ formatDeveui(node.deveui) }}</p>
           </div>
         </div>
         <button
@@ -108,18 +114,30 @@ const nodeLogs = computed(() =>
       <!-- Estado general -->
       <div class="glass-panel p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
         <div>
-          <span class="text-[10px] uppercase font-bold text-slate-500">Estado operativo</span>
+          <span class="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1.5">
+            Estado operativo
+            <InfoTip :text="SENSOR_INFO.connection" />
+          </span>
           <p class="font-bold mt-1" :class="isNodeConnected(node) ? 'text-emerald-500' : 'text-slate-500'">
             {{ connectionLabel(node) }}
           </p>
+          <p class="text-[11px] font-mono text-slate-500 mt-0.5">
+            Último uplink: {{ formatDateTime(node.lastReadingAt) }}
+            <template v-if="node.lastReadingAt">({{ formatRelative(node.lastReadingAt, now) }})</template>
+          </p>
         </div>
         <div>
-          <span class="text-[10px] uppercase font-bold text-slate-500">Nivel de riesgo</span>
-          <p class="font-bold mt-1">{{ riskLabel(node.riskStatus) }}</p>
+          <span class="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1.5">
+            Nivel de riesgo
+            <InfoTip text="Se calcula con la última lectura del nodo y los umbrales configurados en Centro de Alertas.
+Normal: menos de 25 puntos. Observación: 25 a 49. Riesgo alto: 50 a 74. Crítico: 75 o más." />
+          </span>
+          <p class="font-bold mt-1">{{ riskLabel(node.riskStatus) }} <span class="font-mono text-xs text-slate-500">({{ node.riskScore }} pts)</span></p>
         </div>
         <div>
-          <span class="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1">
+          <span class="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1.5">
             <MapPin class="w-3 h-3" /> Ubicación
+            <InfoTip text="Coordenadas guardadas en la base para este nodo. Se cargan en Registro de Nodos; el nodo no las envía." align="right" />
           </span>
           <p class="font-mono mt-1 text-slate-700 dark:text-slate-300">{{ ubicacion }}</p>
         </div>
@@ -127,45 +145,70 @@ const nodeLogs = computed(() =>
 
       <!-- Sensores activos -->
       <section>
-        <h2 class="text-sm font-extrabold mb-3" :class="isDark ? 'text-white' : 'text-slate-800'">
-          Lecturas actuales
+        <h2 class="text-sm font-extrabold mb-1" :class="isDark ? 'text-white' : 'text-slate-800'">
+          {{ isNodeConnected(node) ? 'Lecturas actuales' : 'Última lectura recibida' }}
         </h2>
-        <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <p v-if="!isNodeConnected(node) && node.lastReadingAt" class="text-[11px] font-mono text-amber-500 mb-3">
+          Estos valores son del {{ formatDateTime(node.lastReadingAt) }} ({{ formatRelative(node.lastReadingAt, now) }}); el nodo no ha enviado datos desde entonces.
+        </p>
+        <div class="grid grid-cols-2 lg:grid-cols-3 gap-4" :class="isNodeConnected(node) || !node.lastReadingAt ? 'mt-3' : ''">
           <SensorCard
-            label="Temperatura"
-            :value="formatValue(node.telemetry.temperature)"
+            label="Temperatura DHT"
+            :value="formatValue(node.telemetry.tempDht)"
             unit="°C"
             :icon="Thermometer"
-            :status="node.sensorsHealth.temperature === 'OK' ? 'ok' : 'na'"
-            subtitle="Sensor DHT22 (id: 1)"
+            :status="node.sensorsHealth.tempDht === 'OK' ? 'ok' : 'na'"
+            subtitle="DHT22"
+            :info="SENSOR_INFO.tempDht"
           />
           <SensorCard
-            label="Humedad relativa"
+            label="Humedad"
             :value="formatValue(node.telemetry.humidity)"
             unit="%"
             :icon="Droplets"
             :status="node.sensorsHealth.humidity === 'OK' ? 'ok' : 'na'"
-            subtitle="Sensor DHT22 (id: 2)"
+            subtitle="DHT22"
+            :info="SENSOR_INFO.humidity"
           />
           <SensorCard
-            label="Salud del nodo"
-            :value="`${node.healthScore}%`"
+            label="Índice gas/humo"
+            :value="formatValue(node.telemetry.mq135Adc, 0)"
+            unit="ADC"
             :icon="Activity"
-            :status="node.healthScore >= 75 ? 'ok' : node.healthScore >= 40 ? 'warn' : 'error'"
-            :subtitle="`Conexión: ${node.lastConnection}`"
+            :status="node.sensorsHealth.mq135 === 'OK' ? 'ok' : 'na'"
+            subtitle="MQ135 relativo · no es ppm"
+            :info="SENSOR_INFO.mq135"
+          />
+          <SensorCard
+            label="Temp BMP"
+            :value="formatValue(node.telemetry.tempBmp)"
+            unit="°C"
+            :icon="Thermometer"
+            :status="node.sensorsHealth.tempBmp === 'OK' ? 'ok' : 'na'"
+            subtitle="BMP280 (GY-91)"
+            :info="SENSOR_INFO.tempBmp"
+          />
+          <SensorCard
+            label="Presión"
+            :value="formatValue(node.telemetry.pressureHpa)"
+            unit="hPa"
+            :icon="Activity"
+            :status="node.sensorsHealth.pressure === 'OK' ? 'ok' : 'na'"
+            subtitle="BMP280 (GY-91)"
+            :info="SENSOR_INFO.pressure"
+          />
+          <SensorCard
+            label="RSSI / SNR"
+            :value="`${formatValue(node.telemetry.rssi, 0)} / ${formatValue(node.telemetry.snr)}`"
+            :icon="Activity"
+            :status="node.telemetry.rssi != null ? 'ok' : 'na'"
+            subtitle="Metadatos TTN"
+            :info="SENSOR_INFO.radio"
           />
         </div>
       </section>
 
-      <Mpu6050Panel :mpu="node.telemetry.mpu" />
-
-      <!-- Sensores no instalados -->
-      <div
-        v-if="node.sensorsHealth.co2 === 'ERR' && node.sensorsHealth.pm25 === 'ERR'"
-        class="glass-panel p-4 text-sm text-slate-500 font-mono border-dashed"
-      >
-        CO₂ (MQ-135, id: 3) y PM2.5 (id: 4) no reportan datos desde este nodo.
-      </div>
+      <Mpu6050Panel :telemetry="node.telemetry" />
 
       <!-- Gráfico historial -->
       <section class="glass-panel p-5">

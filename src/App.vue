@@ -1,22 +1,41 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import Sidebar from '@/components/Sidebar.vue'
+import { isSupabaseConfigured } from '@/supabase'
 import { useFireStore } from '@/stores/fireStore'
 import { useTheme } from '@/composables/useTheme'
+import { startHealthMonitor } from '@/services/healthService'
 
 const store = useFireStore()
 const { initTheme } = useTheme()
+const missingSupabaseEnv = !isSupabaseConfigured
+let stopHealth: (() => void) | null = null
 
 onMounted(() => {
   store.initializeStore()
   initTheme()
+  if (!missingSupabaseEnv) stopHealth = startHealthMonitor()
+})
+
+onUnmounted(() => {
+  stopHealth?.()
 })
 </script>
 
 <template>
   <div class="min-h-screen font-sans antialiased overflow-x-hidden
-              bg-[var(--bg-base)] text-[var(--text-primary)] transition-colors duration-300
-              selection:bg-cyan-500/30 selection:text-cyan-300">
+              bg-[var(--bg-base)] text-[var(--text-primary)]">
+    <div
+      v-if="missingSupabaseEnv"
+      class="fixed top-0 left-0 right-0 z-50 px-4 py-2 text-center text-xs font-mono
+             bg-amber-500 text-slate-950 border-b border-amber-300"
+    >
+      Falta el archivo <span class="font-bold">.env</span> con
+      <span class="font-bold">VITE_SUPABASE_URL</span> y
+      <span class="font-bold">VITE_SUPABASE_ANON_KEY</span>.
+      Cópialo desde <span class="font-bold">.env.example</span> y reinicia <span class="font-bold">bun run dev</span>.
+    </div>
+
     <!-- Cybernetic Sidebar Nav -->
     <Sidebar />
 

@@ -9,29 +9,47 @@ export default {
     extend: {
       colors: {
         cyber: {
-          bg: '#030712', // deep slate/black
-          normal: '#10b981', // emerald
-          observation: '#f59e0b', // amber
-          warning: '#f97316', // orange
-          critical: '#ef4444', // red
-          tech: '#06b6d4', // cyan
-        }
+          bg: '#06141f',
+          normal: '#10b981',
+          observation: '#f59e0b',
+          warning: '#f97316',
+          critical: '#ef4444',
+          tech: '#ff6a00',
+        },
+        // El cian anterior era el acento de marca. Ahora es el naranja del sistema.
+        cyan: {
+          50: '#fff4ec',
+          100: '#ffe6d4',
+          200: '#ffc9a3',
+          300: '#ffa366',
+          400: '#ff8533',
+          500: '#ff6a00',
+          600: '#d45500',
+          700: '#a34100',
+          800: '#6e2e08',
+          900: '#3d1a06',
+          950: '#241006',
+        },
       },
       fontFamily: {
-        sans: ['Outfit', 'Inter', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        sans: ['Manrope', 'Segoe UI', 'sans-serif'],
+        display: ['Space Grotesk', 'Segoe UI', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+      },
+      borderRadius: {
+        sharp: '2px',
       },
       boxShadow: {
-        'glow-green': '0 0 15px -3px rgba(16, 185, 129, 0.4)',
-        'glow-yellow': '0 0 15px -3px rgba(245, 158, 11, 0.4)',
-        'glow-orange': '0 0 15px -3px rgba(249, 115, 22, 0.4)',
-        'glow-red': '0 0 15px -3px rgba(239, 68, 68, 0.4)',
-        'glow-cyan': '0 0 15px -3px rgba(6, 182, 212, 0.4)',
-        'glow-green-lg': '0 0 25px -2px rgba(16, 185, 129, 0.6)',
-        'glow-yellow-lg': '0 0 25px -2px rgba(245, 158, 11, 0.6)',
-        'glow-orange-lg': '0 0 25px -2px rgba(249, 115, 22, 0.6)',
-        'glow-red-lg': '0 0 25px -2px rgba(239, 68, 68, 0.6)',
-        'glow-cyan-lg': '0 0 25px -2px rgba(6, 182, 212, 0.6)',
+        'glow-green': 'none',
+        'glow-yellow': 'none',
+        'glow-orange': 'none',
+        'glow-red': 'none',
+        'glow-cyan': 'none',
+        'glow-green-lg': 'none',
+        'glow-yellow-lg': 'none',
+        'glow-orange-lg': 'none',
+        'glow-red-lg': 'none',
+        'glow-cyan-lg': 'none',
       },
       animation: {
         'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',

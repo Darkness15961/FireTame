@@ -3,17 +3,15 @@ import { ref, computed, onMounted } from 'vue'
 import { useFireStore } from '@/stores/fireStore'
 import type { Alert } from '@/stores/fireStore'
 import { useTheme } from '@/composables/useTheme'
+import UmbralesPanel from '@/components/UmbralesPanel.vue'
 import { 
+  Activity,
   BellRing, 
   ShieldAlert, 
   Check, 
-  Send, 
   MapPin, 
-  Info,
   AlertTriangle,
   Flame,
-  Radio,
-  Eye,
   CheckCheck,
   Wrench
 } from 'lucide-vue-next'
@@ -23,12 +21,6 @@ const { isDark } = useTheme()
 const filterSeverity = ref<string>('all')
 const filterType = ref<string>('all')
 const showAcknowledged = ref<boolean>(false)
-
-// Drone simulation state overlay
-const activeDroneMission = ref<string | null>(null)
-const droneMissionStatus = ref<string>('')
-const droneMissionProgress = ref<number>(0)
-let droneInterval: any = null
 
 onMounted(() => {
   store.initializeStore()
@@ -55,41 +47,10 @@ const filteredAlerts = computed(() => {
 
   return list
 })
-
-// Simulated drone flyby mission action
-const dispatchDrone = (nodeName: string) => {
-  if (activeDroneMission.value) return // Busy
-  
-  activeDroneMission.value = nodeName
-  droneMissionProgress.value = 0
-  droneMissionStatus.value = 'PREPARANDO AERONAVE: Drone de Reconocimiento FireTame-X1...'
-  
-  droneInterval = setInterval(() => {
-    droneMissionProgress.value += 5
-    
-    if (droneMissionProgress.value === 15) {
-      droneMissionStatus.value = 'CALIBRANDO SISTEMAS FLIR / SENSOR TÉRMICO INFRARROJO...'
-    } else if (droneMissionProgress.value === 35) {
-      droneMissionStatus.value = `DESPEJE AUTÓNOMO CONFIRMADO. Trayectoria trazada rumbo a: ${nodeName}...`
-    } else if (droneMissionProgress.value === 60) {
-      droneMissionStatus.value = `EN RUTA: Altitud 150m, Velocidad de crucero 65 km/h. Conectando telemetría...`
-    } else if (droneMissionProgress.value === 85) {
-      droneMissionStatus.value = `LLEGADA A COORDENADAS: Orbitando perímetro. Transmitiendo video óptico IA en vivo...`
-    } else if (droneMissionProgress.value >= 100) {
-      clearInterval(droneInterval)
-      droneMissionStatus.value = `MISION COMPLETADA: Área inspeccionada con éxito. Enlace satelital archivado.`
-      
-      setTimeout(() => {
-        activeDroneMission.value = null
-      }, 3500)
-    }
-  }, 400)
-}
 </script>
 
 <template>
-  <div class="lg:pl-72 min-h-screen bg-cyber-grid pb-12 pt-20 lg:pt-6 transition-colors duration-300"
-       :class="isDark ? 'bg-[#030712]' : 'bg-slate-100'">
+  <div class="lg:pl-72 min-h-screen pb-12 pt-20 lg:pt-6 bg-[var(--bg-base)]">
     <div class="px-4 lg:px-8 space-y-6">
 
       <!-- Header panel -->
@@ -116,34 +77,7 @@ const dispatchDrone = (nodeName: string) => {
         </div>
       </header>
 
-      <section v-if="activeDroneMission" class="glass-panel p-6 animate-pulse relative overflow-hidden"
-               :class="isDark ? 'border-cyan-500/40 bg-cyan-950/10 shadow-glow-cyan/20' : 'border-cyan-400/50 bg-cyan-50/50 shadow-sm'">
-        <div class="flex items-center justify-between mb-3.5">
-          <div class="flex items-center space-x-3">
-            <Radio class="w-5 h-5 text-cyan-500 animate-pulse" />
-            <h3 class="font-extrabold text-sm tracking-wider font-sans uppercase"
-                :class="isDark ? 'text-white' : 'text-slate-800'">
-              DESPACHO TÁCTICO DE DRON ACTIVO: {{ activeDroneMission }}
-            </h3>
-          </div>
-          <span class="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded border"
-                :class="isDark ? 'text-cyan-400 bg-slate-950 border-slate-900' : 'text-cyan-600 bg-cyan-50 border-cyan-200'">
-            COMPLETADO: {{ droneMissionProgress }}%
-          </span>
-        </div>
-
-        <p class="text-xs font-mono mb-4" :class="isDark ? 'text-cyan-300' : 'text-cyan-600'">{{ droneMissionStatus }}</p>
-
-        <!-- Progress loading gauge -->
-        <div class="h-2 w-full rounded-full overflow-hidden border"
-             :class="isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-200 border-slate-300'">
-          <div 
-            class="h-full bg-gradient-to-r from-cyan-600 to-cyan-400 transition-all duration-300"
-            :class="isDark ? 'shadow-glow-cyan' : ''"
-            :style="{ width: `${droneMissionProgress}%` }"
-          ></div>
-        </div>
-      </section>
+      <UmbralesPanel />
 
       <section class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 rounded-2xl glass-panel"
                :class="isDark ? 'bg-slate-950/20' : 'bg-slate-50/55'">
@@ -157,10 +91,10 @@ const dispatchDrone = (nodeName: string) => {
             :class="isDark ? 'bg-slate-950/80 border-slate-800 focus:border-cyan-500/40 text-slate-300' : 'bg-white border-slate-200 focus:border-cyan-400/50 text-slate-700'"
           >
             <option value="all">Prioridad: Todas</option>
-            <option value="critical">🔴 Crítica (Confirmado)</option>
-            <option value="high">🟠 Alta (Riesgo/Caído)</option>
-            <option value="medium">🟡 Media (Falla Técnica)</option>
-            <option value="low">🟢 Baja (Resoluciones IA)</option>
+            <option value="critical">Crítico</option>
+            <option value="high">Alto</option>
+            <option value="medium">Medio</option>
+            <option value="low">Bajo</option>
           </select>
         </div>
 
@@ -173,11 +107,8 @@ const dispatchDrone = (nodeName: string) => {
             :class="isDark ? 'bg-slate-950/80 border-slate-800 focus:border-cyan-500/40 text-slate-300' : 'bg-white border-slate-200 focus:border-cyan-400/50 text-slate-700'"
           >
             <option value="all">Categoría: Todas</option>
-            <option value="fire">🔥 Detección de Fuego</option>
-            <option value="smoke">💨 Monóxido/Humo</option>
-            <option value="hardware">🔧 Desviación de Hardware</option>
-            <option value="offline">📶 Pérdida Enlace</option>
-            <option value="false_positive">ℹ️ Falsos Positivos</option>
+            <option value="environmental">Riesgo ambiental (sensores)</option>
+            <option value="tamper">Inclinación / tamper</option>
           </select>
         </div>
 
@@ -258,11 +189,9 @@ const dispatchDrone = (nodeName: string) => {
           <!-- Alert message box -->
           <div class="my-4 pl-3 flex items-start space-x-3 text-xs leading-relaxed"
                :class="isDark ? 'text-slate-300' : 'text-slate-600'">
-            <Flame v-if="alert.type === 'fire'" class="w-5 h-5 text-red-500 shrink-0 animate-pulse" />
-            <AlertTriangle v-else-if="alert.type === 'smoke'" class="w-5 h-5 text-orange-500 shrink-0" />
-            <Wrench v-else-if="alert.type === 'hardware'" class="w-5 h-5 text-amber-500 shrink-0" />
-            <Radio v-else-if="alert.type === 'offline'" class="w-5 h-5 text-red-500 shrink-0" />
-            <Info v-else class="w-5 h-5 text-emerald-500 shrink-0" />
+            <Flame v-if="alert.severity === 'critical'" class="w-5 h-5 text-red-500 shrink-0 animate-pulse" />
+            <AlertTriangle v-else-if="alert.type === 'tamper'" class="w-5 h-5 text-amber-500 shrink-0" />
+            <Wrench v-else class="w-5 h-5 text-orange-500 shrink-0" />
 
             <p>{{ alert.message }}</p>
           </div>
@@ -270,20 +199,6 @@ const dispatchDrone = (nodeName: string) => {
           <!-- Interaction Actions -->
           <div class="flex items-center space-x-3 justify-end border-t pt-3.5"
                :class="isDark ? 'border-slate-900' : 'border-slate-200'">
-            <!-- Drone dispatch button (only available if active fire/smoke/offline is unacknowledged) -->
-            <button 
-              v-if="!alert.acknowledged && (alert.type === 'fire' || alert.type === 'smoke' || alert.type === 'offline')"
-              @click="dispatchDrone(alert.nodeName)"
-              :disabled="!!activeDroneMission"
-              class="px-3.5 py-1.5 border rounded-lg text-[10px] font-mono uppercase transition-all duration-300 flex items-center space-x-1.5 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              :class="isDark 
-                ? 'border-cyan-800 text-cyan-400 hover:text-white hover:bg-cyan-500/20 hover:border-cyan-500/50' 
-                : 'border-cyan-300 text-cyan-600 hover:text-cyan-800 hover:bg-cyan-50 hover:border-cyan-400'"
-            >
-              <Send class="w-3.5 h-3.5" />
-              <span>Despachar Dron</span>
-            </button>
-
             <!-- Acknowledge ACK Button -->
             <button 
               v-if="!alert.acknowledged"
@@ -314,7 +229,7 @@ const dispatchDrone = (nodeName: string) => {
         :class="isDark ? 'text-slate-500 border-slate-800' : 'text-slate-500 border-slate-300 shadow-sm'"
       >
         <span class="block text-lg font-bold mb-2" :class="isDark ? 'text-slate-400' : 'text-slate-700'">No hay incidentes pendientes</span>
-        <span>Toda la red forestal IoT de Cusco se reporta en parámetros estables.</span>
+        <span>Ningún nodo superó el puntaje configurado para encender una alerta.</span>
       </div>
 
     </div>

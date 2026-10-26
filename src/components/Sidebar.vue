@@ -11,7 +11,8 @@ import {
   PlusCircle, 
   Radio, 
   Sun,
-  Moon
+  Moon,
+  ClipboardList,
 } from 'lucide-vue-next'
 
 const store = useFireStore()
@@ -22,10 +23,10 @@ const isActive = (path: string) => route.path === path
 
 const navigationItems = [
   { name: 'NOC Dashboard',        path: '/',          icon: LayoutDashboard },
-  { name: 'Dispositivos IoT',     path: '/devices',   icon: Cpu },
+  { name: 'Dispositivos LoRaWAN', path: '/devices',   icon: Cpu },
   { name: 'Centro de Alertas',    path: '/alerts',    icon: BellRing, badge: computed(() => store.activeAlertsCount) },
-  { name: 'Consola Simulación',   path: '/simulation',icon: Flame },
   { name: 'Registro de Nodos',    path: '/management',icon: PlusCircle },
+  { name: 'Bitácora de pruebas',  path: '/bitacora',  icon: ClipboardList },
 ]
 
 const currentYear = new Date().getFullYear()
@@ -33,29 +34,26 @@ const currentYear = new Date().getFullYear()
 
 <template>
   <aside
-    class="hidden lg:flex flex-col w-72 h-screen fixed left-0 top-0 z-40 backdrop-blur-md border-r transition-colors duration-300"
-    :class="isDark ? 'bg-[#070b19]/90 border-slate-800/80 text-slate-300'
-                   : 'bg-white/90 border-slate-200 text-slate-700'"
+    class="hidden lg:flex flex-col w-72 h-screen fixed left-0 top-0 z-40 border-r"
+    :class="isDark ? 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+                   : 'bg-white border-[var(--border-subtle)] text-[var(--text-primary)]'"
   >
     <!-- Header / Logo -->
     <div class="p-6 border-b"
          :class="isDark ? 'border-slate-800/80' : 'border-slate-200'">
       <div class="flex items-center justify-between">
         <div class="flex items-center space-x-3">
-          <div class="relative flex items-center justify-center w-10 h-10 rounded-xl border shadow-glow-cyan"
-               :class="isDark ? 'bg-cyan-950/60 border-cyan-500/40' : 'bg-cyan-50 border-cyan-400/60'">
-            <Flame class="w-6 h-6 text-cyan-400 animate-pulse" />
-            <div class="absolute inset-0 rounded-xl border border-cyan-400/20 animate-ping opacity-30"></div>
+          <div class="flex items-center justify-center w-10 h-10 border"
+               :class="isDark ? 'bg-[var(--bg-elevated)] border-[var(--border-subtle)]' : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)]'">
+            <Flame class="w-5 h-5 text-cyan-500" />
           </div>
           <div>
-            <h1 class="text-xl font-extrabold tracking-wider font-sans bg-clip-text bg-gradient-to-r"
-                :class="isDark
-                  ? 'text-transparent from-white via-cyan-200 to-cyan-400'
-                  : 'text-transparent from-slate-900 via-cyan-700 to-cyan-500'">
+            <h1 class="text-xl font-semibold font-display"
+                :class="isDark ? 'text-[var(--text-primary)]' : 'text-[var(--text-primary)]'">
               FireTame
             </h1>
-            <span class="text-[9px] tracking-widest uppercase font-mono font-bold text-cyan-500">
-              Smart IoT Wildfire NOC
+            <span class="text-[10px] tracking-[0.16em] uppercase font-semibold text-cyan-500">
+              Wildfire NOC
             </span>
           </div>
         </div>
@@ -63,10 +61,10 @@ const currentYear = new Date().getFullYear()
         <!-- Theme toggle button -->
         <button
           @click="toggleTheme"
-          class="p-2 rounded-xl border transition-all duration-300"
+          class="p-2 border transition-colors"
           :class="isDark
-            ? 'bg-slate-900/60 border-slate-700 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40'
-            : 'bg-slate-100 border-slate-300 text-slate-500 hover:bg-cyan-50 hover:border-cyan-400/50 hover:text-cyan-600'"
+            ? 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
           :title="isDark ? 'Activar modo claro' : 'Activar modo oscuro'"
         >
           <Sun v-if="isDark" class="w-4 h-4" />
@@ -78,24 +76,20 @@ const currentYear = new Date().getFullYear()
     <!-- System Pulse Monitor -->
     <div class="px-6 py-4 border-b"
          :class="isDark ? 'border-slate-800/40 bg-slate-900/20' : 'border-slate-200 bg-slate-50/60'">
-      <div class="flex items-center justify-between p-3 rounded-xl border"
-           :class="isDark ? 'bg-slate-950/40 border-slate-800/50' : 'bg-white border-slate-200'">
+      <div class="flex items-center justify-between p-3 border"
+           :class="isDark ? 'bg-[var(--bg-base)] border-[var(--border-subtle)]' : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)]'">
         <div class="flex items-center space-x-3">
-          <div class="relative flex h-3.5 w-3.5">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-                  :class="store.activeFiresCount > 0 ? 'bg-red-500' : 'bg-emerald-400'"></span>
-            <span class="relative inline-flex rounded-full h-3.5 w-3.5"
-                  :class="store.activeFiresCount > 0 ? 'bg-red-500 shadow-glow-red' : 'bg-emerald-500 shadow-glow-green'"></span>
-          </div>
-          <span class="text-xs font-mono font-bold tracking-wide"
-                :class="store.activeFiresCount > 0 ? 'text-red-400 animate-pulse' : 'text-emerald-400'">
-            {{ store.activeFiresCount > 0 ? 'ALERTA INCENDIO' : 'SISTEMA OPERATIVO' }}
+          <span class="inline-flex rounded-full h-2.5 w-2.5"
+                :class="store.activeFiresCount > 0 ? 'bg-red-500' : 'bg-emerald-500'"></span>
+          <span class="text-[11px] font-semibold tracking-[0.12em] uppercase"
+                :class="store.activeFiresCount > 0 ? 'text-red-400' : 'text-emerald-500'">
+            {{ store.activeFiresCount > 0 ? 'Alerta incendio' : 'Sistema operativo' }}
           </span>
         </div>
-        <div class="flex items-center space-x-1.5 text-[10px] font-mono px-2 py-0.5 rounded border"
-             :class="isDark ? 'text-slate-500 bg-slate-900/60 border-slate-800' : 'text-slate-400 bg-slate-100 border-slate-300'">
-          <Radio class="w-3.5 h-3.5 text-cyan-500 animate-pulse" />
-          <span>LIVE</span>
+        <div class="flex items-center space-x-1.5 text-[10px] font-semibold tracking-[0.14em] uppercase px-2 py-0.5 border text-cyan-500"
+             :class="isDark ? 'border-[var(--border-subtle)]' : 'border-[var(--border-subtle)]'">
+          <Radio class="w-3.5 h-3.5" />
+          <span>Live</span>
         </div>
       </div>
     </div>
@@ -106,31 +100,29 @@ const currentYear = new Date().getFullYear()
         v-for="item in navigationItems"
         :key="item.path"
         :to="item.path"
-        class="flex items-center justify-between px-4 py-3.5 rounded-xl font-medium transition-all duration-300 relative overflow-hidden group border"
+        class="flex items-center justify-between px-4 py-3 font-medium transition-colors relative overflow-hidden group border"
         :class="[
           isActive(item.path)
             ? (isDark
-                ? 'bg-gradient-to-r from-cyan-950/60 to-slate-900/40 border-cyan-800/60 text-cyan-400 shadow-glow-cyan'
-                : 'bg-gradient-to-r from-cyan-50 to-slate-50 border-cyan-400/50 text-cyan-600 shadow-sm')
+                ? 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)]'
+                : 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)]')
             : (isDark
-                ? 'hover:bg-slate-900/50 border-transparent hover:text-white'
-                : 'hover:bg-slate-50 border-transparent hover:text-slate-900')
+                ? 'hover:bg-[var(--bg-elevated)] border-transparent hover:text-[var(--text-primary)]'
+                : 'hover:bg-[var(--bg-elevated)] border-transparent hover:text-[var(--text-primary)]')
         ]"
       >
-        <!-- Active indicator line -->
         <span
           v-if="isActive(item.path)"
-          class="absolute left-0 top-0 bottom-0 w-1 rounded-r"
-          :class="isDark ? 'bg-cyan-400 shadow-glow-cyan' : 'bg-cyan-500'"
+          class="absolute left-0 top-0 bottom-0 w-[3px] bg-cyan-500"
         ></span>
 
         <div class="flex items-center space-x-3.5">
           <component
             :is="item.icon"
-            class="w-5 h-5 transition-transform duration-300 group-hover:scale-110"
+            class="w-5 h-5"
             :class="isActive(item.path)
-              ? (isDark ? 'text-cyan-400' : 'text-cyan-500')
-              : (isDark ? 'text-slate-400 group-hover:text-cyan-300' : 'text-slate-400 group-hover:text-cyan-500')"
+              ? 'text-cyan-500'
+              : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'"
           />
           <span class="text-sm font-sans tracking-wide">{{ item.name }}</span>
         </div>
@@ -138,12 +130,10 @@ const currentYear = new Date().getFullYear()
         <!-- Alert badge -->
         <div
           v-if="item.badge && item.badge.value > 0"
-          class="px-2 py-0.5 text-xxs font-mono font-extrabold rounded-md border"
-          :class="[
-            isActive(item.path)
-              ? 'bg-red-500/20 text-red-400 border-red-500/40 animate-pulse'
-              : 'bg-red-500/10 text-red-500 border-red-500/20 animate-bounce'
-          ]"
+          class="px-2 py-0.5 text-xxs font-mono font-semibold border"
+          :class="isActive(item.path)
+            ? 'bg-red-500/15 text-red-400 border-red-500/30'
+            : 'bg-red-500/10 text-red-500 border-red-500/20'"
         >
           {{ item.badge.value }}
         </div>
@@ -168,15 +158,15 @@ const currentYear = new Date().getFullYear()
         </span>
       </div>
 
-      <div class="h-2 w-full rounded-full overflow-hidden border"
-           :class="isDark ? 'bg-slate-900 border-slate-800' : 'bg-slate-200 border-slate-300'">
+      <div class="h-1.5 w-full overflow-hidden"
+           :class="isDark ? 'bg-[var(--bg-base)]' : 'bg-[var(--grid-gap)]'">
         <div
-          class="h-full rounded-full transition-all duration-1000 shadow-lg"
+          class="h-full transition-all duration-700"
           :class="{
-            'bg-emerald-500 shadow-glow-green': store.globalRiskScore < 25,
-            'bg-amber-500 shadow-glow-yellow': store.globalRiskScore >= 25 && store.globalRiskScore < 60,
-            'bg-orange-500 shadow-glow-orange': store.globalRiskScore >= 60 && store.globalRiskScore < 85,
-            'bg-red-500 shadow-glow-red animate-pulse-fast': store.globalRiskScore >= 85,
+            'bg-emerald-500': store.globalRiskScore < 25,
+            'bg-amber-500': store.globalRiskScore >= 25 && store.globalRiskScore < 60,
+            'bg-orange-500': store.globalRiskScore >= 60 && store.globalRiskScore < 85,
+            'bg-red-500': store.globalRiskScore >= 85,
           }"
           :style="{ width: `${store.globalRiskScore}%` }"
         ></div>
@@ -210,13 +200,13 @@ const currentYear = new Date().getFullYear()
 
   <!-- ── Mobile header bar ── -->
   <header
-    class="lg:hidden fixed top-0 left-0 right-0 h-16 backdrop-blur-md border-b z-50 px-4 flex items-center justify-between"
+    class="lg:hidden fixed top-0 left-0 right-0 h-16 border-b z-50 px-4 flex items-center justify-between"
     :class="isDark
-      ? 'bg-[#070b19]/90 border-slate-800/80 text-slate-300'
-      : 'bg-white/90 border-slate-200 text-slate-700'"
+      ? 'bg-[var(--bg-surface)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
+      : 'bg-white border-[var(--border-subtle)] text-[var(--text-primary)]'"
   >
     <div class="flex items-center space-x-2">
-      <Flame class="w-5 h-5 text-cyan-400 animate-pulse" />
+      <Flame class="w-5 h-5 text-cyan-500" />
       <span class="text-md font-extrabold tracking-widest"
             :class="isDark ? 'text-white' : 'text-slate-900'">FireTame</span>
     </div>
@@ -240,10 +230,10 @@ const currentYear = new Date().getFullYear()
           v-for="item in navigationItems"
           :key="item.path"
           :to="item.path"
-          class="p-2.5 rounded-lg transition-all border"
+          class="p-2.5 border transition-colors"
           :class="isActive(item.path)
-            ? (isDark ? 'bg-cyan-950/60 border-cyan-800/40 text-cyan-400' : 'bg-cyan-50 border-cyan-300 text-cyan-600')
-            : 'border-transparent text-slate-400'"
+            ? 'bg-[var(--bg-elevated)] border-[var(--border-subtle)] text-cyan-500'
+            : 'border-transparent text-[var(--text-muted)]'"
           :title="item.name"
         >
           <div class="relative">

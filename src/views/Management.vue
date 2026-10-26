@@ -3,6 +3,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useFireStore } from '@/stores/fireStore'
 import type { IoTNode } from '@/stores/fireStore'
 import { useTheme } from '@/composables/useTheme'
+import { MAP_TILE_OPTIONS, mapTileUrl } from '@/constants/mapTiles'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { 
@@ -27,7 +28,8 @@ const { isDark } = useTheme()
 const nodeName = ref('')
 const nodeLat = ref(-13.4)
 const nodeLng = ref(-72.0)
-const selectedSensors = ref<string[]>(['temperature', 'humidity', 'co2', 'pm25', 'camera'])
+const ttnDeviceId = ref('')
+const deveui = ref('')
 
 let minMap: L.Map | null = null
 const minMapContainer = ref<HTMLElement | null>(null)
@@ -47,9 +49,7 @@ const initMinMap = () => {
     attributionControl: false
   }).setView([-13.38, -72.15], 8.5)
 
-  L.tileLayer(isDark.value ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 20
-  }).addTo(minMap)
+  L.tileLayer(mapTileUrl(isDark.value), MAP_TILE_OPTIONS).addTo(minMap)
 
   // Initial picker marker
   tempMarker = L.marker([nodeLat.value, nodeLng.value], {
@@ -93,11 +93,13 @@ const submitDeployNode = () => {
     nodeName.value.trim(),
     nodeLat.value,
     nodeLng.value,
-    selectedSensors.value
+    ttnDeviceId.value.trim(),
+    deveui.value.trim(),
   )
 
-  // Reset name input only, maintain coordinate context for subsequent deployments
   nodeName.value = ''
+  ttnDeviceId.value = ''
+  deveui.value = ''
 }
 
 const toggleNode = (id: string) => {
@@ -110,8 +112,7 @@ const deleteNode = (id: string) => {
 </script>
 
 <template>
-  <div class="lg:pl-72 min-h-screen bg-cyber-grid pb-12 pt-20 lg:pt-6 transition-colors duration-300"
-       :class="isDark ? 'bg-[#030712]' : 'bg-slate-100'">
+  <div class="lg:pl-72 min-h-screen pb-12 pt-20 lg:pt-6 bg-[var(--bg-base)]">
     <div class="px-4 lg:px-8 space-y-6">
 
       <!-- Header panel -->
@@ -132,7 +133,7 @@ const deleteNode = (id: string) => {
       <section class="grid grid-cols-1 xl:grid-cols-3 gap-6">
         
         <!-- Registration Form (1 Col) -->
-        <div class="glass-panel p-5 flex flex-col justify-between h-[450px]">
+        <div class="glass-panel p-5 flex flex-col justify-between min-h-[450px]">
           <span class="text-xs font-sans text-slate-400 font-extrabold block mb-4 flex items-center space-x-2">
             <PlusCircle class="w-4 h-4 text-cyan-500" />
             <span>FORMULARIO DE DESPLIEGUE FÍSICO</span>
@@ -184,42 +185,30 @@ const deleteNode = (id: string) => {
               </div>
             </div>
 
-            <!-- Sensors checklist -->
-            <div class="space-y-2">
-              <label class="font-bold block" :class="isDark ? 'text-slate-400' : 'text-slate-600'">Sensores Incorporados:</label>
-              <div class="grid grid-cols-2 md:grid-cols-3 gap-2.5 font-mono text-[10px]"
-                   :class="isDark ? 'text-slate-300' : 'text-slate-600'">
-                <label class="flex items-center space-x-2 p-2 rounded-lg border cursor-pointer"
-                       :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
-                  <input type="checkbox" value="temperature" v-model="selectedSensors" class="rounded text-cyan-500 w-3.5 h-3.5"
-                         :class="isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-300 bg-white'" />
-                  <span>🌡️ Temp</span>
-                </label>
-                <label class="flex items-center space-x-2 p-2 rounded-lg border cursor-pointer"
-                       :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
-                  <input type="checkbox" value="humidity" v-model="selectedSensors" class="rounded text-cyan-500 w-3.5 h-3.5"
-                         :class="isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-300 bg-white'" />
-                  <span>💧 Humedad</span>
-                </label>
-                <label class="flex items-center space-x-2 p-2 rounded-lg border cursor-pointer"
-                       :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
-                  <input type="checkbox" value="co2" v-model="selectedSensors" class="rounded text-cyan-500 w-3.5 h-3.5"
-                         :class="isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-300 bg-white'" />
-                  <span>💨 CO2</span>
-                </label>
-                <label class="flex items-center space-x-2 p-2 rounded-lg border cursor-pointer"
-                       :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
-                  <input type="checkbox" value="pm25" v-model="selectedSensors" class="rounded text-cyan-500 w-3.5 h-3.5"
-                         :class="isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-300 bg-white'" />
-                  <span>✨ PM2.5</span>
-                </label>
-                <label class="flex items-center space-x-2 p-2 rounded-lg border cursor-pointer col-span-2"
-                       :class="isDark ? 'bg-slate-950/40 border-slate-900' : 'bg-white border-slate-200 shadow-sm'">
-                  <input type="checkbox" value="camera" v-model="selectedSensors" class="rounded text-cyan-500 w-3.5 h-3.5"
-                         :class="isDark ? 'border-slate-800 bg-slate-950' : 'border-slate-300 bg-white'" />
-                  <span>📷 FLIR IA Cam</span>
-                </label>
-              </div>
+            <div class="space-y-1.5">
+              <label class="font-bold block" :class="isDark ? 'text-slate-400' : 'text-slate-600'">TTN device id:</label>
+              <input
+                type="text"
+                v-model="ttnDeviceId"
+                placeholder="heltec-wifi-lora-32-v3"
+                class="w-full px-3.5 py-2.5 rounded-xl border focus:outline-none font-mono"
+                :class="isDark
+                  ? 'bg-slate-950/80 border-slate-800 focus:border-cyan-500/40 text-white placeholder-slate-600'
+                  : 'bg-white border-slate-200 focus:border-cyan-400 text-slate-800 placeholder-slate-400'"
+              />
+            </div>
+            <div class="space-y-1.5">
+              <label class="font-bold block" :class="isDark ? 'text-slate-400' : 'text-slate-600'">DevEUI (16 hex):</label>
+              <input
+                type="text"
+                v-model="deveui"
+                placeholder="0011223344556677"
+                maxlength="16"
+                class="w-full px-3.5 py-2.5 rounded-xl border focus:outline-none font-mono uppercase"
+                :class="isDark
+                  ? 'bg-slate-950/80 border-slate-800 focus:border-cyan-500/40 text-white placeholder-slate-600'
+                  : 'bg-white border-slate-200 focus:border-cyan-400 text-slate-800 placeholder-slate-400'"
+              />
             </div>
 
             <!-- Deploy node button -->
@@ -268,8 +257,8 @@ const deleteNode = (id: string) => {
                   :class="isDark ? 'border-slate-800/80' : 'border-slate-200'">
                 <th class="py-3 px-4 font-bold">ID / Dispositivo</th>
                 <th class="py-3 px-4 font-bold">Coordenadas</th>
-                <th class="py-3 px-4 font-bold">Sensores Montados</th>
-                <th class="py-3 px-4 font-bold">Salud</th>
+                <th class="py-3 px-4 font-bold">TTN / DevEUI</th>
+                <th class="py-3 px-4 font-bold">Riesgo</th>
                 <th class="py-3 px-4 font-bold">Enlace Técnico</th>
                 <th class="py-3 px-4 text-right font-bold">Acciones de Red</th>
               </tr>
@@ -296,29 +285,18 @@ const deleteNode = (id: string) => {
 
                 <!-- Coords -->
                 <td class="py-3.5 px-4" :class="isDark ? 'text-slate-400' : 'text-slate-600'">
-                  <span>{{ node.lat.toFixed(4) }}, {{ node.lng.toFixed(4) }}</span>
+                  <span v-if="node.lat != null && node.lng != null">{{ node.lat.toFixed(4) }}, {{ node.lng.toFixed(4) }}</span>
+                  <span v-else>Sin coordenadas</span>
                 </td>
 
                 <!-- Installed list -->
-                <td class="py-3.5 px-4 text-slate-500">
-                  <div class="flex flex-wrap gap-1 max-w-[200px]">
-                    <span v-if="node.sensorsHealth.temperature === 'OK'" class="px-1.5 py-0.5 rounded border text-[9px]"
-                          :class="isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'">TEMP</span>
-                    <span v-if="node.sensorsHealth.humidity === 'OK'" class="px-1.5 py-0.5 rounded border text-[9px]"
-                          :class="isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'">HUM</span>
-                    <span v-if="node.sensorsHealth.co2 === 'OK'" class="px-1.5 py-0.5 rounded border text-[9px]"
-                          :class="isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'">CO2</span>
-                    <span v-if="node.sensorsHealth.pm25 === 'OK'" class="px-1.5 py-0.5 rounded border text-[9px]"
-                          :class="isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'">PM2.5</span>
-                    <span v-if="node.sensorsHealth.camera === 'OK'" class="px-1.5 py-0.5 rounded border text-[9px]"
-                          :class="isDark ? 'bg-slate-900 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'">CAMERA</span>
-                  </div>
+                <td class="py-3.5 px-4 text-slate-500 font-mono">
+                  <div>{{ node.ttnDeviceId || '—' }}</div>
+                  <div class="text-[9px] uppercase">{{ node.deveui || 'sin DevEUI' }}</div>
                 </td>
-
-                <!-- Health score bar -->
                 <td class="py-3.5 px-4">
-                  <span class="font-extrabold" :class="node.healthScore < 40 ? 'text-red-400' : node.healthScore < 75 ? 'text-amber-400' : 'text-emerald-400'">
-                    {{ node.healthScore }}%
+                  <span class="font-extrabold" :class="node.riskStatus === 'red' ? 'text-red-400' : node.riskStatus === 'orange' ? 'text-orange-400' : node.riskStatus === 'yellow' ? 'text-amber-400' : 'text-emerald-400'">
+                    {{ node.riskScore }}
                   </span>
                 </td>
 
@@ -326,15 +304,11 @@ const deleteNode = (id: string) => {
                 <td class="py-3.5 px-4">
                   <span 
                     class="text-[9px] font-mono px-2 py-0.5 rounded border"
-                    :class="{
-                      'bg-emerald-500/10 text-emerald-400 border-emerald-500/20': node.techStatus === 'online',
-                      'bg-red-500/10 text-red-500 border-red-500/20': node.techStatus === 'offline',
-                      'bg-amber-500/10 text-amber-400 border-amber-500/20': node.techStatus === 'low_battery',
-                      'bg-orange-500/10 text-orange-400 border-orange-500/20': node.techStatus === 'sensor_error',
-                      'bg-blue-500/10 text-blue-400 border-blue-500/20': node.techStatus === 'signal_weak',
-                    }"
+                    :class="node.techStatus === 'online'
+                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                      : 'bg-red-500/10 text-red-500 border-red-500/20'"
                   >
-                    {{ node.techStatus === 'online' ? 'CONECTADO' : node.techStatus === 'offline' ? 'CAÍDO' : node.techStatus === 'low_battery' ? 'BAT_BAJA' : node.techStatus === 'sensor_error' ? 'ERR_SENSOR' : 'SIG_DEBIL' }}
+                    {{ node.techStatus === 'online' ? 'CONECTADO' : 'SIN UPLINK' }}
                   </span>
                 </td>
 
@@ -347,9 +321,9 @@ const deleteNode = (id: string) => {
                       @click="toggleNode(node.id)"
                       class="p-1.5 rounded-lg transition-colors cursor-pointer"
                       :class="isDark ? 'hover:bg-slate-900 text-slate-500 hover:text-white' : 'hover:bg-slate-200 text-slate-500 hover:text-slate-900'"
-                      :title="node.techStatus === 'offline' ? 'Reconectar Enlace' : 'Forzar Desconexión (Offline)'"
+                      :title="node.enabled ? 'Deshabilitar nodo' : 'Habilitar nodo'"
                     >
-                      <ToggleRight class="w-5.5 h-5.5 text-emerald-500" v-if="node.techStatus !== 'offline'" />
+                      <ToggleRight class="w-5.5 h-5.5 text-emerald-500" v-if="node.enabled" />
                       <ToggleLeft class="w-5.5 h-5.5 text-red-500 animate-pulse" v-else />
                     </button>
 

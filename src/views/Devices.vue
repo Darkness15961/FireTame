@@ -3,9 +3,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useFireStore } from '@/stores/fireStore'
 import { useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
-import { formatValue, riskLabel } from '@/utils/format'
+import { formatDeveui, formatValue, riskLabel } from '@/utils/format'
 import { connectionLabel, isNodeConnected } from '@/constants/connection'
-import { hasMpuData } from '@/constants/sensors'
 import {
   Search,
   Cpu,
@@ -24,7 +23,11 @@ const filteredNodes = computed(() => {
   if (!searchQuery.value) return store.nodes
   const q = searchQuery.value.toLowerCase()
   return store.nodes.filter(
-    (n) => n.name.toLowerCase().includes(q) || n.id.toLowerCase().includes(q)
+    (n) =>
+      n.name.toLowerCase().includes(q) ||
+      n.id.toLowerCase().includes(q) ||
+      (n.ttnDeviceId ?? '').toLowerCase().includes(q) ||
+      (n.deveui ?? '').toLowerCase().includes(q)
   )
 })
 
@@ -36,15 +39,14 @@ const goToDetail = (id: string) => {
 
 <template>
   <div
-    class="lg:pl-72 min-h-screen bg-cyber-grid pb-12 pt-20 lg:pt-6 transition-colors duration-300"
-    :class="isDark ? 'bg-[#030712]' : 'bg-slate-100'"
+    class="lg:pl-72 min-h-screen pb-12 pt-20 lg:pt-6 bg-[var(--bg-base)]"
   >
     <div class="px-4 lg:px-8 space-y-6">
 
       <header class="glass-panel p-5 lg:p-6">
         <p class="text-[10px] font-mono uppercase tracking-widest text-cyan-500 font-bold flex items-center gap-1.5">
           <Cpu class="w-3.5 h-3.5" />
-          Red IoT · {{ store.connectedNodesCount }} de {{ store.nodes.length }} en línea
+          Red LoRaWAN · {{ store.connectedNodesCount }} de {{ store.nodes.length }} en línea
         </p>
         <h1 class="text-2xl lg:text-3xl font-extrabold mt-1" :class="isDark ? 'text-white' : 'text-slate-900'">
           Dispositivos conectados
@@ -72,8 +74,9 @@ const goToDetail = (id: string) => {
         >
           <div class="flex justify-between items-start gap-2">
             <div>
-              <span class="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold">{{ node.id }}</span>
+              <span class="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 font-bold">{{ node.ttnDeviceId || node.id }}</span>
               <h2 class="text-lg font-extrabold" :class="isDark ? 'text-white' : 'text-slate-900'">{{ node.name }}</h2>
+              <span class="text-[10px] font-mono text-slate-500">DevEUI {{ formatDeveui(node.deveui) }}</span>
             </div>
             <span
               class="text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded border shrink-0"
@@ -88,7 +91,7 @@ const goToDetail = (id: string) => {
           <div class="grid grid-cols-2 gap-2 text-center text-[10px] font-mono text-slate-500 border-t pt-3 border-slate-200 dark:border-slate-800">
             <div>
               <p class="text-lg font-extrabold tabular-nums text-slate-800 dark:text-white">
-                {{ formatValue(node.telemetry.temperature) }}°C
+                {{ formatValue(node.telemetry.tempDht) }}°C
               </p>
               <p>Temp</p>
             </div>
@@ -98,10 +101,9 @@ const goToDetail = (id: string) => {
               </p>
               <p>Hum</p>
             </div>
-            <div v-if="hasMpuData(node.telemetry.mpu)" class="col-span-2 text-left pt-1">
-              <p class="text-[9px] uppercase font-bold text-amber-600 dark:text-amber-400 mb-1">MPU6050</p>
-              <p>ACC: {{ formatValue(node.telemetry.mpu.accX ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.accY ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.accZ ?? 0, 0) }}</p>
-              <p>GYRO: {{ formatValue(node.telemetry.mpu.gyroX ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.gyroY ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.gyroZ ?? 0, 0) }}</p>
+            <div class="col-span-2 text-left pt-1">
+              <p class="text-[9px] uppercase font-bold text-amber-600 dark:text-amber-400 mb-1">MQ135 ADC (relativo)</p>
+              <p>{{ formatValue(node.telemetry.mq135Adc, 0) }} · {{ formatValue(node.telemetry.pressureHpa) }} hPa</p>
             </div>
           </div>
 

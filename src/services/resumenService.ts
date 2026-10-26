@@ -1,29 +1,34 @@
-import { supabase } from '@/supabase'
+import { isNodeConnected } from '@/constants/connection'
 import type { DbResumenGlobal } from '@/types/database'
 
-const EMPTY_RESUMEN: DbResumenGlobal = {
-  total_nodos: 0,
-  nodos_online: 0,
-  nodos_offline: 0,
-  alertas_activas: 0,
-  temp_promedio: null,
-  ultima_lectura_at: null,
+export interface ResumenNodeInput {
+  lastReadingAt: string | null
+  enabled: boolean
+  telemetry: { tempDht: number | null }
 }
 
-export async function fetchResumenGlobal(): Promise<DbResumenGlobal> {
-  const { data, error } = await supabase.rpc('get_resumen_global')
-
-  if (error) throw error
-
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row) return EMPTY_RESUMEN
+export function buildResumenFromNodes(
+  nodes: ResumenNodeInput[],
+  alertasActivas: number,
+): DbResumenGlobal {
+  const online = nodes.filter((n) => isNodeConnected(n))
+  const temps = online
+    .map((n) => n.telemetry.tempDht)
+    .filter((v): v is number => v != null)
+  const last = nodes
+    .map((n) => n.lastReadingAt)
+    .filter((v): v is string => !!v)
+    .sort()
+    .at(-1) ?? null
 
   return {
-    total_nodos: Number(row.total_nodos ?? 0),
-    nodos_online: Number(row.nodos_online ?? 0),
-    nodos_offline: Number(row.nodos_offline ?? 0),
-    alertas_activas: Number(row.alertas_activas ?? 0),
-    temp_promedio: row.temp_promedio != null ? Number(row.temp_promedio) : null,
-    ultima_lectura_at: row.ultima_lectura_at ?? null,
+    total_nodos: nodes.length,
+    nodos_online: online.length,
+    nodos_offline: nodes.length - online.length,
+    alertas_activas: alertasActivas,
+    temp_promedio: temps.length
+      ? parseFloat((temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1))
+      : null,
+    ultima_lectura_at: last,
   }
 }

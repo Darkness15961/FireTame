@@ -3,8 +3,8 @@ import Dashboard from '@/views/Dashboard.vue'
 import Devices from '@/views/Devices.vue'
 import DeviceDetail from '@/views/DeviceDetail.vue'
 import Alerts from '@/views/Alerts.vue'
-import Simulation from '@/views/Simulation.vue'
 import Management from '@/views/Management.vue'
+import Bitacora from '@/views/Bitacora.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -19,13 +19,13 @@ const router = createRouter({
       path: '/devices',
       name: 'devices',
       component: Devices,
-      meta: { title: 'Infraestructura IoT - Dispositivos' }
+      meta: { title: 'Nodos LoRaWAN Heltec' }
     },
     {
       path: '/devices/:id',
       name: 'device-detail',
       component: DeviceDetail,
-      meta: { title: 'Digital Twin - Telemetría Avanzada' }
+      meta: { title: 'Telemetría ambiental LoRaWAN' }
     },
     {
       path: '/alerts',
@@ -34,25 +34,25 @@ const router = createRouter({
       meta: { title: 'Centro de Alertas Críticas' }
     },
     {
-      path: '/simulation',
-      name: 'simulation',
-      component: Simulation,
-      meta: { title: 'Consola de Simulación de Emergencia' }
-    },
-    {
       path: '/management',
       name: 'management',
       component: Management,
       meta: { title: 'Administración y Despliegue de Nodos' }
+    },
+    {
+      path: '/bitacora',
+      name: 'bitacora',
+      component: Bitacora,
+      meta: { title: 'Bitácora de pruebas' }
     }
   ]
 })
 
 // Set document title dynamically
-router.beforeEach((to, from, next) => {
-  const pageTitle = to.meta.title ? `${to.meta.title} | FireTame` : 'FireTame - IoT Forest Fire Monitoring'
-  document.title = pageTitle
-  next()
+router.beforeEach((to) => {
+  document.title = to.meta.title
+    ? `${to.meta.title} | FireTame`
+    : 'FireTame - IoT Forest Fire Monitoring'
 })
 
 export default router

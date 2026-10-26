@@ -1,0 +1,10 @@
+project_id = "firetame"
+
+[api]
+enabled = true
+
+[db]
+major_version = 15
+
+[functions.ttn-uplink]
+verify_jwt = false

@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 import type { IoTNode } from '@/stores/fireStore'
-import { formatValue, riskLabel } from '@/utils/format'
+import { formatDeveui, formatValue, riskLabel } from '@/utils/format'
 import { connectionLabel, isNodeConnected } from '@/constants/connection'
-import { hasMpuData } from '@/constants/sensors'
 
 defineProps<{
   nodes: IoTNode[]
@@ -12,9 +11,6 @@ defineProps<{
 const router = useRouter()
 
 const goToNode = (id: string) => router.push(`/devices/${id}`)
-
-const sensorDisplay = (ok: boolean, value: number, unit: string) =>
-  ok ? `${formatValue(value)} ${unit}` : 'Sin datos'
 </script>
 
 <template>
@@ -23,7 +19,7 @@ const sensorDisplay = (ok: boolean, value: number, unit: string) =>
       <h3 class="font-extrabold text-sm tracking-wide text-slate-900 dark:text-white">
         Reporte por nodo
       </h3>
-      <p class="text-xs text-slate-500 mt-0.5">Lecturas en tiempo real desde Supabase</p>
+      <p class="text-xs text-slate-500 mt-0.5">Telemetría LoRaWAN en tiempo real · intervalo ~1 min</p>
     </div>
 
     <div class="overflow-x-auto">
@@ -32,11 +28,12 @@ const sensorDisplay = (ok: boolean, value: number, unit: string) =>
           <tr class="text-[10px] font-mono uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800">
             <th class="px-5 py-3 font-bold">Nodo</th>
             <th class="px-3 py-3 font-bold">Estado</th>
-            <th class="px-3 py-3 font-bold">Temp (DHT22)</th>
+            <th class="px-3 py-3 font-bold">Temp DHT</th>
             <th class="px-3 py-3 font-bold">Humedad</th>
-            <th class="px-3 py-3 font-bold">MPU6050 (ACC / GYRO)</th>
-            <th class="px-3 py-3 font-bold">CO₂ / PM2.5</th>
-            <th class="px-3 py-3 font-bold">Última conexión</th>
+            <th class="px-3 py-3 font-bold">MQ135 (ADC)</th>
+            <th class="px-3 py-3 font-bold">Presión</th>
+            <th class="px-3 py-3 font-bold">Pitch / Roll</th>
+            <th class="px-3 py-3 font-bold">Último uplink</th>
             <th class="px-5 py-3 font-bold"></th>
           </tr>
         </thead>
@@ -48,7 +45,12 @@ const sensorDisplay = (ok: boolean, value: number, unit: string) =>
           >
             <td class="px-5 py-3">
               <div class="font-bold text-slate-900 dark:text-white">{{ node.name }}</div>
-              <div class="text-[10px] font-mono text-cyan-600 dark:text-cyan-400">{{ node.id }}</div>
+              <div class="text-[10px] font-mono text-cyan-600 dark:text-cyan-400">
+                {{ node.ttnDeviceId || node.id }}
+              </div>
+              <div class="text-[10px] font-mono text-slate-500">
+                {{ formatDeveui(node.deveui) }}
+              </div>
             </td>
             <td class="px-3 py-3">
               <span
@@ -61,32 +63,15 @@ const sensorDisplay = (ok: boolean, value: number, unit: string) =>
                   'text-red-600 border-red-200 bg-red-50 dark:text-red-400 dark:border-red-800/40': node.riskStatus === 'red',
                 }"
               >
-                <span
-                  class="w-1.5 h-1.5 rounded-full"
-                  :class="isNodeConnected(node) ? 'bg-emerald-500' : 'bg-slate-400'"
-                />
                 {{ !isNodeConnected(node) ? connectionLabel(node) : riskLabel(node.riskStatus) }}
               </span>
             </td>
-            <td class="px-3 py-3 font-mono tabular-nums text-slate-800 dark:text-slate-200">
-              {{ sensorDisplay(node.sensorsHealth.temperature === 'OK', node.telemetry.temperature, '°C') }}
-            </td>
-            <td class="px-3 py-3 font-mono tabular-nums text-slate-800 dark:text-slate-200">
-              {{ sensorDisplay(node.sensorsHealth.humidity === 'OK', node.telemetry.humidity, '%') }}
-            </td>
-            <td class="px-3 py-3 text-[10px] font-mono text-slate-600 dark:text-slate-300">
-              <template v-if="hasMpuData(node.telemetry.mpu)">
-                <div>ACC: {{ formatValue(node.telemetry.mpu.accX ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.accY ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.accZ ?? 0, 0) }}</div>
-                <div>GYRO: {{ formatValue(node.telemetry.mpu.gyroX ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.gyroY ?? 0, 0) }}, {{ formatValue(node.telemetry.mpu.gyroZ ?? 0, 0) }}</div>
-              </template>
-              <span v-else class="text-slate-400">—</span>
-            </td>
-            <td class="px-3 py-3 text-[11px] font-mono text-slate-500">
-              <span v-if="node.sensorsHealth.co2 === 'OK'">{{ formatValue(node.telemetry.co2, 0) }} ppm</span>
-              <span v-else class="text-slate-400">CO₂ N/A</span>
-              <span class="mx-1">·</span>
-              <span v-if="node.sensorsHealth.pm25 === 'OK'">{{ formatValue(node.telemetry.pm25, 0) }} µg/m³</span>
-              <span v-else class="text-slate-400">PM2.5 N/A</span>
+            <td class="px-3 py-3 font-mono tabular-nums">{{ formatValue(node.telemetry.tempDht) }} °C</td>
+            <td class="px-3 py-3 font-mono tabular-nums">{{ formatValue(node.telemetry.humidity) }} %</td>
+            <td class="px-3 py-3 font-mono tabular-nums">{{ formatValue(node.telemetry.mq135Adc, 0) }}</td>
+            <td class="px-3 py-3 font-mono tabular-nums">{{ formatValue(node.telemetry.pressureHpa) }} hPa</td>
+            <td class="px-3 py-3 font-mono tabular-nums text-[11px]">
+              {{ formatValue(node.telemetry.pitchDeg) }}° / {{ formatValue(node.telemetry.rollDeg) }}°
             </td>
             <td class="px-3 py-3 text-[11px] font-mono text-slate-500">{{ node.lastConnection }}</td>
             <td class="px-5 py-3 text-right">
@@ -105,7 +90,7 @@ const sensorDisplay = (ok: boolean, value: number, unit: string) =>
         v-if="nodes.length === 0"
         class="px-5 py-12 text-center text-sm text-slate-500 font-mono"
       >
-        No hay nodos registrados en la base de datos.
+        No hay nodos registrados.
       </div>
     </div>
   </div>
