@@ -9,8 +9,8 @@ import { useNow } from '@/composables/useNow'
 import InfoTip from '@/components/InfoTip.vue'
 import { SENSOR_INFO } from '@/constants/sensors'
 import { connectionLabel, isNodeConnected } from '@/constants/connection'
-import apexchart from 'vue3-apexcharts'
 import Mpu6050Panel from '@/components/Mpu6050Panel.vue'
+import NodeHistoryCharts from '@/components/NodeHistoryCharts.vue'
 import {
   ArrowLeft,
   Thermometer,
@@ -34,36 +34,6 @@ onMounted(async () => {
   await store.initializeStore()
   if (node.value) store.selectedNodeId = node.value.id
   else if (nodeId.value) await store.refreshNode(nodeId.value)
-})
-
-const chartOptions = computed(() => ({
-  chart: {
-    type: 'line' as const,
-    background: 'transparent',
-    foreColor: isDark.value ? '#64748b' : '#475569',
-    toolbar: { show: false },
-  },
-  stroke: { curve: 'smooth' as const, width: 2 },
-  colors: ['#38bdf8', '#a855f7', '#f59e0b'],
-  dataLabels: { enabled: false },
-  grid: { borderColor: isDark.value ? '#1e293b' : '#e2e8f0' },
-  xaxis: {
-    categories: node.value?.history.map((h) => h.timestamp) ?? [],
-    labels: { style: { fontSize: '9px' } },
-    tooltip: { enabled: false },
-  },
-  legend: { fontSize: '11px' },
-  tooltip: { theme: isDark.value ? 'dark' as const : 'light' as const },
-}))
-
-const chartSeries = computed(() => {
-  if (!node.value?.history.length) return []
-  const series = [
-    { name: 'Temperatura DHT (°C)', data: node.value.history.map((h) => h.tempDht) },
-    { name: 'Humedad (%)', data: node.value.history.map((h) => h.humidity) },
-    { name: 'MQ135 (ADC)', data: node.value.history.map((h) => h.mq135Adc) },
-  ]
-  return series
 })
 
 const ubicacion = computed(() => {
@@ -217,10 +187,9 @@ Normal: menos de 25 puntos. Observación: 25 a 49. Riesgo alto: 50 a 74. Crític
           <h2 class="text-sm font-extrabold" :class="isDark ? 'text-white' : 'text-slate-800'">
             Historial de lecturas
           </h2>
+          <span class="text-[11px] font-mono text-slate-500">últimos {{ node.history.length }} uplinks · los umbrales se dibujan como línea punteada cuando caen dentro de la escala</span>
         </div>
-        <div v-if="chartSeries.length" class="rounded-xl border p-3 border-slate-200 dark:border-slate-800">
-          <apexchart type="line" height="260" :options="chartOptions" :series="chartSeries" />
-        </div>
+        <NodeHistoryCharts v-if="node.history.length" :history="node.history" :umbrales="store.umbrales" />
         <p v-else class="text-center py-12 text-slate-500 text-sm">Sin historial disponible.</p>
       </section>
 

@@ -4,8 +4,6 @@ Plataforma IoT de **prevención de incendios** por telemetría ambiental tempran
 
 **MVP actual:** nodos **Heltec WiFi LoRa 32 V3** → gateway HT-M7603 → **The Things Network (US915 / FSB 2 / nam1)** → webhook → **Supabase** → dashboard Vue en tiempo real.
 
-Raspberry Pi, cámara e IA de visión **no forman parte de este MVP** (queda extensible para `vision_alerts` más adelante).
-
 ---
 
 ## Cadena de datos
@@ -37,11 +35,11 @@ El frontend **no** habla con el Heltec. El Heltec **no** habla con Supabase.
 | `pitch_deg` | MPU (GY-91) | inclinación |
 | `roll_deg` | MPU (GY-91) | inclinación |
 
-No se usan CO₂, PM2.5, ejes crudos ni frames de cámara.
+No se usan CO₂ calibrado, PM2.5 ni ejes crudos del MPU.
 
 ---
 
-## Riesgo ambiental (sin cámara)
+## Riesgo ambiental
 
 Score 0–100 a partir de umbrales de temperatura DHT, humedad, MQ135 vs baseline y tilt > 45°.
 
@@ -140,9 +138,9 @@ src/
 supabase/
   migrations/               # schema MVP
   functions/ttn-uplink/     # webhook TTN
+firmware/
+  nodo-1 … nodo-3/          # sketches Heltec (secrets.h no se versiona)
 ```
-
-Visión / Raspberry / simulación: fuera del menú. No son fuente de datos del MVP.
 
 ---
 

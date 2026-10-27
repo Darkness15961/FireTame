@@ -76,10 +76,15 @@ export function evaluateEnvironmentalRisk(
 ): RiskResult {
   let score = 0
   const reasons: string[] = []
-  const temp = reading.temp_dht_c
-  // El DHT22 manda 0 % cuando falla la lectura; no cuenta como aire seco.
-  const hum = reading.humidity_pct != null && reading.humidity_pct > 0 ? reading.humidity_pct : null
-  const mq = reading.mq135_adc
+  // Mismas reglas que detectarFallas() en ttn-uplink: el firmware manda T=0 y H=0 cuando el DHT22
+  // no responde, y el MQ135 marca 0 o 4095 con el pin suelto o en corto.
+  const rawT = reading.temp_dht_c
+  const rawH = reading.humidity_pct
+  const dhtFalla = rawT == null || rawH == null || (rawT === 0 && rawH === 0) || rawT < -40 || rawT > 80
+  const temp = dhtFalla ? null : rawT
+  const hum = dhtFalla || rawH == null || rawH <= 0 || rawH > 100 ? null : rawH
+  const rawMq = reading.mq135_adc
+  const mq = rawMq == null || rawMq <= 0 || rawMq >= 4095 ? null : rawMq
   const pitch = reading.pitch_deg
   const roll = reading.roll_deg
 

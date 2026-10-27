@@ -1,6 +1,5 @@
 -- FireTame MVP Heltec LoRaWAN (schema_version 1)
 -- Conserva `nodos`. Añade lecturas anchas + eventos de riesgo.
--- No borra lecturas_sensores / vision_ai (legado).
 
 alter table public.nodos
   add column if not exists ttn_device_id text,

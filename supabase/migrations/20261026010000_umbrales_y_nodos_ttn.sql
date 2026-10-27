@@ -41,10 +41,7 @@ grant select, update on public.umbrales_alerta to anon, authenticated;
 delete from public.nodos n
 where n.id in ('CH-08', 'CL-07', 'CQ-05', 'MP-01', 'OT-03', 'PS-04', 'SH-02')
   and not exists (select 1 from public.sensor_readings s where s.node_id = n.id)
-  and not exists (select 1 from public.risk_events r where r.node_id = n.id)
-  and not exists (select 1 from public.lecturas_sensores l where l.nodo_id = n.id)
-  and not exists (select 1 from public.vision_ai v where v.nodo_id = n.id)
-  and not exists (select 1 from public.sensores x where x.nodo_id = n.id);
+  and not exists (select 1 from public.risk_events r where r.node_id = n.id);
 
 create or replace view public.nodos_heltec_dashboard as
 select

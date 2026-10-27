@@ -39,6 +39,33 @@ export const SENSOR_INFO = {
     'En línea: llegó un uplink en los últimos 5 minutos.\nSin señal: el nodo está habilitado pero no envía hace más de 5 minutos.\nSin uplinks: nunca llegó un paquete de este nodo.\nDeshabilitado: se apagó a mano en Registro de Nodos.',
 } as const
 
+type LecturaSensores = Omit<HeltecTelemetry, 'rssi' | 'snr'>
+
+/**
+ * Quita los valores de sensores en falla (mismas reglas que detectarFallas() en ttn-uplink):
+ * el firmware manda 0 cuando un sensor no responde y el MQ135 marca 0 o 4095 con el pin suelto.
+ */
+export function sinValoresEnFalla<T extends LecturaSensores>(r: T): T {
+  const t = r.tempDht
+  const h = r.humidity
+  const dhtFalla = t == null || h == null || (t === 0 && h === 0) || t < -40 || t > 80
+  const mq = r.mq135Adc
+  const tb = r.tempBmp
+  const p = r.pressureHpa
+  const bmpFalla = tb == null || p == null || (tb === 0 && p === 0) || p < 300 || p > 1100 || tb < -40 || tb > 85
+  const mpuFalla = r.pitchDeg == null || r.rollDeg == null || (r.pitchDeg === 0 && r.rollDeg === 0)
+  return {
+    ...r,
+    tempDht: dhtFalla ? null : t,
+    humidity: dhtFalla || h == null || h <= 0 || h > 100 ? null : h,
+    mq135Adc: mq == null || mq <= 0 || mq >= 4095 ? null : mq,
+    tempBmp: bmpFalla ? null : tb,
+    pressureHpa: bmpFalla ? null : p,
+    pitchDeg: mpuFalla ? null : r.pitchDeg,
+    rollDeg: mpuFalla ? null : r.rollDeg,
+  }
+}
+
 export function hasTiltData(t: Pick<HeltecTelemetry, 'pitchDeg' | 'rollDeg'>): boolean {
   return t.pitchDeg != null || t.rollDeg != null
 }

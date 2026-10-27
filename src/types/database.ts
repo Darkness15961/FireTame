@@ -94,6 +94,7 @@ export interface RiskEvent {
   reason: { reasons?: string[]; baseline?: number } | null
   reading_id: string | null
   created_at: string
+  atendida_at?: string | null
 }
 
 export interface NodeDevice {
@@ -140,15 +141,4 @@ export interface DbResumenGlobal {
   alertas_activas: number
   temp_promedio: number | null
   ultima_lectura_at: string | null
-}
-
-/** @deprecated legado Raspberry / visión — no usar en el MVP Heltec */
-export interface DbVisionAi {
-  id: number
-  nodo_id: string
-  deteccion: string | null
-  confianza: number | null
-  frame_url: string | null
-  estado: number | null
-  created_at: string
 }

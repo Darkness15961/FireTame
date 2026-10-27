@@ -77,6 +77,11 @@ const filteredAlerts = computed(() => {
         </div>
       </header>
 
+      <p class="text-xs font-mono text-slate-500 -mt-2 px-1">
+        Cada alerta se guarda cuando un uplink supera el puntaje configurado y sigue pendiente hasta que la acuses,
+        aunque el nodo ya no envíe datos. Si un nodo se calla justo después de una alerta, puede ser justamente el incidente.
+      </p>
+
       <UmbralesPanel />
 
       <section class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 rounded-2xl glass-panel"

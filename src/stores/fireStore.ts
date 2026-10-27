@@ -12,7 +12,7 @@ import {
 import { fetchUmbrales, saveUmbrales } from '@/services/umbralesService'
 import { fetchNodosDashboard, createNodo, updateNodoEstado, deleteNodo as deleteNodoDb } from '@/services/nodosService'
 import { fetchNodeHistory } from '@/services/lecturasService'
-import { fetchAlertasActivas } from '@/services/alertasService'
+import { fetchAlertasActivas, marcarAtendidas } from '@/services/alertasService'
 import { buildResumenFromNodes } from '@/services/resumenService'
 import type { DbNodoDashboard, DbResumenGlobal, RiskEvent, SensorReading } from '@/types/database'
 import { formatTime } from '@/utils/format'
@@ -30,6 +30,7 @@ export interface SensorHealth {
 
 export interface NodeHistoryEntry {
   timestamp: string
+  receivedAt: string
   tempDht: number | null
   humidity: number | null
   mq135Adc: number | null
@@ -296,6 +297,7 @@ export const useFireStore = defineStore('fireStore', {
         if (last) applyReading(node, last, this.umbrales)
         node.history = history.map((entry) => ({
           timestamp: formatTime(entry.received_at),
+          receivedAt: entry.received_at,
           tempDht: entry.temp_dht_c,
           humidity: entry.humidity_pct,
           mq135Adc: entry.mq135_adc,
@@ -334,7 +336,7 @@ export const useFireStore = defineStore('fireStore', {
         type: isTamper ? 'tamper' : 'environmental',
         message: `Riesgo ${e.level} (score ${e.score}). ${reasons}`,
         timestamp: formatTime(e.created_at),
-        acknowledged: false,
+        acknowledged: e.atendida_at != null,
         score: e.score,
       }
     },
@@ -354,6 +356,7 @@ export const useFireStore = defineStore('fireStore', {
             applyReading(node, reading, this.umbrales)
             node.history.push({
               timestamp: formatTime(reading.received_at),
+              receivedAt: reading.received_at,
               tempDht: reading.temp_dht_c,
               humidity: reading.humidity_pct,
               mq135Adc: reading.mq135_adc,
@@ -468,15 +471,32 @@ export const useFireStore = defineStore('fireStore', {
       this.addLog('error', `Nodo [${nodeName}] eliminado.`)
     },
 
-    acknowledgeAlert(alertId: string) {
+    async acknowledgeAlert(alertId: string) {
       const alert = this.alerts.find((a) => a.id === alertId)
-      if (alert) alert.acknowledged = true
+      if (!alert || alert.acknowledged) return
+      try {
+        await marcarAtendidas([alertId])
+      } catch (e) {
+        console.error('Error marking alert as attended:', e)
+        this.addLog('error', 'No se pudo guardar la alerta como atendida.')
+        return
+      }
+      alert.acknowledged = true
+      this.syncResumen()
     },
 
-    acknowledgeAllAlerts() {
+    async acknowledgeAllAlerts() {
+      try {
+        await marcarAtendidas()
+      } catch (e) {
+        console.error('Error marking alerts as attended:', e)
+        this.addLog('error', 'No se pudieron guardar las alertas como atendidas.')
+        return
+      }
       this.alerts.forEach((alert) => {
         alert.acknowledged = true
       })
+      this.syncResumen()
     },
 
     async updateUmbrales(next: UmbralesAlerta) {

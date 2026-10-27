@@ -13,7 +13,7 @@ import { SENSOR_INFO } from '@/constants/sensors'
 import { MAP_TILE_OPTIONS, mapTileUrl } from '@/constants/mapTiles'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import apexchart from 'vue3-apexcharts'
+import NodeHistoryCharts from '@/components/NodeHistoryCharts.vue'
 import {
   Cpu,
   AlertTriangle,
@@ -129,39 +129,6 @@ watch(() => store.selectedNodeId, (newId) => {
   }
 })
 
-const chartOptions = computed(() => ({
-  chart: {
-    type: 'line' as const,
-    background: 'transparent',
-    foreColor: isDark.value ? '#64748b' : '#475569',
-    toolbar: { show: false },
-    animations: { enabled: true, dynamicAnimation: { speed: 600 } },
-  },
-  stroke: { curve: 'smooth' as const, width: 2 },
-  colors: ['#ff6a00', '#156a9c'],
-  dataLabels: { enabled: false },
-  grid: { borderColor: isDark.value ? '#1e293b' : '#e2e8f0', strokeDashArray: 3 },
-  xaxis: {
-    categories: store.selectedNode?.history.map((h) => h.timestamp) ?? [],
-    labels: { style: { fontSize: '9px', fontFamily: 'JetBrains Mono' } },
-    tooltip: { enabled: false },
-  },
-  yaxis: [
-    { title: { text: '°C' }, labels: { formatter: (v: number) => `${v.toFixed(1)}` } },
-    { opposite: true, title: { text: '%' }, labels: { formatter: (v: number) => `${Math.round(v)}` } },
-  ],
-  legend: { position: 'top' as const, fontSize: '11px' },
-  tooltip: { theme: isDark.value ? 'dark' as const : 'light' as const },
-}))
-
-const chartSeries = computed(() => {
-  if (!store.selectedNode?.history.length) return []
-  return [
-    { name: 'Temperatura DHT (°C)', data: store.selectedNode.history.map((h) => h.tempDht) },
-    { name: 'Humedad (%)', data: store.selectedNode.history.map((h) => h.humidity) },
-  ]
-})
-
 const refreshAll = () => store.refreshFromServer()
 </script>
 
@@ -199,7 +166,7 @@ const refreshAll = () => store.refreshFromServer()
         </button>
       </header>
 
-      <!-- KPIs desde get_resumen_global() -->
+      <!-- KPIs calculados con los nodos cargados (resumenService) -->
       <section class="grid grid-cols-2 lg:grid-cols-5 gap-[3px] bg-[var(--grid-gap)]">
         <div class="glass-panel p-4">
           <div class="flex justify-between items-start">
@@ -331,13 +298,16 @@ const refreshAll = () => store.refreshFromServer()
       <section class="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div class="xl:col-span-2 glass-panel p-5">
           <h2 class="text-sm font-extrabold mb-1" :class="isDark ? 'text-white' : 'text-slate-800'">
-            Historial de temperatura y humedad
+            Historial del nodo seleccionado
           </h2>
-          <p class="text-xs text-slate-500 mb-4">Últimos uplinks LoRaWAN (~1 min) · sensor_readings</p>
+          <p class="text-xs text-slate-500 mb-4">Últimos uplinks LoRaWAN (~1 min) · los umbrales se dibujan como línea punteada cuando caen dentro de la escala</p>
 
-          <div v-if="store.selectedNode && chartSeries.length" class="rounded-xl border p-3 border-slate-200 dark:border-slate-800">
-            <apexchart type="line" height="220" :options="chartOptions" :series="chartSeries" />
-          </div>
+          <NodeHistoryCharts
+            v-if="store.selectedNode?.history.length"
+            :history="store.selectedNode.history"
+            :umbrales="store.umbrales"
+            :metrics="['tempDht', 'humidity', 'mq135', 'tilt']"
+          />
           <div v-else class="py-16 text-center text-sm text-slate-500 font-mono border border-dashed rounded-xl">
             Selecciona un nodo con lecturas registradas.
           </div>

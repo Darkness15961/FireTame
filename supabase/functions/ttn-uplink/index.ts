@@ -63,24 +63,69 @@ function riskLevelFromScore(score: number): RiskLevel {
   return 'low'
 }
 
-function evaluateRisk(reading: {
+interface SensorValues {
   temp_dht_c?: number | null
   humidity_pct?: number | null
   mq135_adc?: number | null
+  temp_bmp_c?: number | null
+  pressure_hpa?: number | null
   pitch_deg?: number | null
   roll_deg?: number | null
-}, baseline: number, u: Umbrales) {
+}
+
+/** Ventana para contar "2 de 3 uplinks": con envío cada ~60 s, tres uplinks caben en 5 min. */
+const PERSISTENCIA_VENTANA_MS = 5 * 60 * 1000
+const MQ135_ADC_MAX = 4095
+
+/**
+ * El firmware manda 0 cuando un sensor no responde (DHT con NaN, GY-91 sin iniciar, MPU sin lectura)
+ * y el ADC del MQ135 se va a 0 o 4095 con el pin suelto o en corto. Esas lecturas no son datos.
+ */
+function detectarFallas(r: SensorValues): string[] {
+  const fallas: string[] = []
+  const t = r.temp_dht_c
+  const h = r.humidity_pct
+  if (t == null || h == null || (t === 0 && h === 0) || t < -40 || t > 80) fallas.push('dht')
+  else if (h <= 0 || h > 100) fallas.push('humedad')
+
+  const mq = r.mq135_adc
+  if (mq == null || mq <= 0 || mq >= MQ135_ADC_MAX) fallas.push('mq135')
+
+  const tb = r.temp_bmp_c
+  const p = r.pressure_hpa
+  if (tb == null || p == null || (tb === 0 && p === 0) || p < 300 || p > 1100 || tb < -40 || tb > 85) {
+    fallas.push('bmp')
+  }
+
+  if (r.pitch_deg == null || r.roll_deg == null || (r.pitch_deg === 0 && r.roll_deg === 0)) fallas.push('mpu')
+  return fallas
+}
+
+function sinFallas(r: SensorValues, fallas: string[]): SensorValues {
+  const dht = fallas.includes('dht')
+  return {
+    temp_dht_c: dht ? null : r.temp_dht_c,
+    humidity_pct: dht || fallas.includes('humedad') ? null : r.humidity_pct,
+    mq135_adc: fallas.includes('mq135') ? null : r.mq135_adc,
+    pitch_deg: fallas.includes('mpu') ? null : r.pitch_deg,
+    roll_deg: fallas.includes('mpu') ? null : r.roll_deg,
+  }
+}
+
+/** Recibe la lectura ya sin valores de sensores en falla. */
+function evaluateRisk(reading: SensorValues, baseline: number, u: Umbrales) {
   let score = 0
   const reasons: string[] = []
+  const grupos = new Set<'temperatura' | 'humedad' | 'gas'>()
   const temp = reading.temp_dht_c
-  // El DHT22 manda 0 % cuando falla la lectura; no cuenta como aire seco.
-  const hum = reading.humidity_pct != null && reading.humidity_pct > 0 ? reading.humidity_pct : null
+  const hum = reading.humidity_pct
   const mq = reading.mq135_adc
   const pitch = reading.pitch_deg
   const roll = reading.roll_deg
 
   if (temp != null && temp >= u.temp_observacion_c) {
     score += 20
+    grupos.add('temperatura')
     reasons.push(`temp_dht_c >= ${u.temp_observacion_c} (${temp})`)
   }
   if (temp != null && temp >= u.temp_critica_c) {
@@ -89,6 +134,7 @@ function evaluateRisk(reading: {
   }
   if (hum != null && hum <= u.humedad_observacion_pct) {
     score += 20
+    grupos.add('humedad')
     reasons.push(`humidity_pct <= ${u.humedad_observacion_pct} (${hum})`)
   }
   if (hum != null && hum <= u.humedad_critica_pct) {
@@ -97,6 +143,7 @@ function evaluateRisk(reading: {
   }
   if (mq != null && mq >= baseline + u.mq135_delta_observacion) {
     score += 20
+    grupos.add('gas')
     reasons.push(`mq135_adc >= baseline+${u.mq135_delta_observacion} (${mq} vs ${baseline})`)
   }
   if (mq != null && mq >= baseline + u.mq135_delta_critico) {
@@ -113,7 +160,7 @@ function evaluateRisk(reading: {
   }
 
   score = Math.min(100, score)
-  return { score, level: riskLevelFromScore(score), reasons }
+  return { score, level: riskLevelFromScore(score), reasons, grupos: [...grupos] }
 }
 
 function num(value: unknown): number | null {
@@ -378,6 +425,7 @@ Deno.serve(async (req) => {
     pressure_hpa: num(decoded.pressure_hpa),
     pitch_deg: num(decoded.pitch_deg),
     roll_deg: num(decoded.roll_deg),
+    fallas: [] as string[],
     rssi: num(rx?.rssi) != null ? Math.round(num(rx?.rssi)!) : null,
     snr: num(rx?.snr),
     node_rssi: num(decoded.node_rssi),
@@ -403,6 +451,7 @@ Deno.serve(async (req) => {
       settings: uplink.settings ?? null,
     },
   }
+  reading.fallas = detectarFallas(reading)
 
   let { data: inserted, error: insertReadingError } = await supabase
     .from('sensor_readings')
@@ -413,7 +462,7 @@ Deno.serve(async (req) => {
   // Si la migración de bitácora aún no está aplicada, guarda el uplink con las columnas viejas.
   if (
     insertReadingError &&
-    /column|schema cache|crc_status|f_cnt|airtime_s|node_rssi|gateway_received/i.test(insertReadingError.message)
+    /column|schema cache|crc_status|f_cnt|airtime_s|node_rssi|gateway_received|fallas/i.test(insertReadingError.message)
   ) {
     const legacy = {
       node_id: reading.node_id,
@@ -448,7 +497,8 @@ Deno.serve(async (req) => {
     .from('sensor_readings')
     .select('mq135_adc')
     .eq('node_id', nodeId)
-    .not('mq135_adc', 'is', null)
+    .gt('mq135_adc', 0)
+    .lt('mq135_adc', MQ135_ADC_MAX)
     .order('received_at', { ascending: true })
     .limit(MQ135_BASELINE_SAMPLES)
 
@@ -466,13 +516,47 @@ Deno.serve(async (req) => {
     ? Math.round(samples.reduce((a, b) => a + b, 0) / samples.length)
     : umbrales.mq135_baseline_defecto
 
-  const risk = evaluateRisk(reading, baseline, umbrales)
-  if (risk.score >= umbrales.score_minimo_alerta) {
+  const risk = evaluateRisk(sinFallas(reading, reading.fallas), baseline, umbrales)
+  const minimo = umbrales.score_minimo_alerta
+
+  // Dos sensores distintos que coinciden encienden la alerta de inmediato.
+  // Si solo uno supera el umbral, se exige que también lo haya hecho otro de los 2 uplinks previos.
+  let corroboracion: 'sensores' | 'persistencia' | null = null
+  if (risk.score >= minimo) {
+    if (risk.grupos.length >= 2) {
+      corroboracion = 'sensores'
+    } else {
+      const desde = new Date(Date.parse(receivedAt) - PERSISTENCIA_VENTANA_MS).toISOString()
+      const { data: previas } = await supabase
+        .from('sensor_readings')
+        .select('temp_dht_c, humidity_pct, mq135_adc, temp_bmp_c, pressure_hpa, pitch_deg, roll_deg')
+        .eq('node_id', nodeId)
+        .neq('id', inserted!.id)
+        .gte('received_at', desde)
+        .lt('received_at', receivedAt)
+        .order('received_at', { ascending: false })
+        .limit(2)
+      const persistente = (previas ?? []).some((prev) => {
+        const r = prev as SensorValues
+        return evaluateRisk(sinFallas(r, detectarFallas(r)), baseline, umbrales).score >= minimo
+      })
+      if (persistente) corroboracion = 'persistencia'
+    }
+  }
+
+  if (corroboracion) {
     await supabase.from('risk_events').insert({
       node_id: nodeId,
       level: risk.level,
       score: risk.score,
-      reason: { reasons: risk.reasons, baseline, score_minimo_alerta: umbrales.score_minimo_alerta },
+      reason: {
+        reasons: risk.reasons,
+        baseline,
+        score_minimo_alerta: minimo,
+        corroboracion,
+        grupos: risk.grupos,
+        fallas: reading.fallas,
+      },
       reading_id: inserted!.id,
     })
   }
@@ -482,7 +566,9 @@ Deno.serve(async (req) => {
       ok: true,
       node_id: nodeId,
       reading_id: inserted!.id,
+      fallas: reading.fallas,
       risk,
+      alerta: corroboracion,
     }),
     { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
   )

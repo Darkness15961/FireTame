@@ -65,6 +65,18 @@ export function formatTime(iso: string | null | undefined): string {
   })
 }
 
+/** Hora corta (HH:mm, Lima) para ejes de gráficas. */
+export function formatHourMinute(iso: string | null | undefined): string {
+  const date = parseUtcDate(iso)
+  if (!date || Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString('es-PE', {
+    timeZone: APP_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  })
+}
+
 export function formatRelative(iso: string | null | undefined, now: number = Date.now()): string {
   const date = parseUtcDate(iso)
   if (!date || Number.isNaN(date.getTime())) return '—'
