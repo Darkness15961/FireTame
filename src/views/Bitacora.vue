@@ -1,28 +1,40 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { RealtimeChannel } from '@supabase/supabase-js'
-import { ClipboardList, Download, RefreshCw } from 'lucide-vue-next'
+import { ClipboardList, Download, FileSpreadsheet, RefreshCw } from 'lucide-vue-next'
+import Column from 'primevue/column'
+import ColumnGroup from 'primevue/columngroup'
+import DataTable from 'primevue/datatable'
+import Row from 'primevue/row'
+import Select from 'primevue/select'
 import { useFireStore } from '@/stores/fireStore'
 import { useTheme } from '@/composables/useTheme'
 import { supabase } from '@/supabase'
 import {
   BitacoraSchemaError,
   closeCondicion,
-  createCondicion,
+  contarBitacora,
   fetchBitacora,
   fetchCondiciones,
   updateCondicion,
 } from '@/services/bitacoraService'
 import type { BitacoraRow, CondicionPrueba } from '@/types/database'
 import {
-  APP_TIMEZONE,
   formatDateTime,
   formatDeveui,
   formatSeconds,
   formatTime,
   formatValue,
-  parseUtcDate,
 } from '@/utils/format'
+import {
+  armarHojas,
+  columnasReporte,
+  descargarReporteCsv,
+  descargarReporteExcel,
+  marcaTiempo,
+  tablasReporte,
+  type ModoColumnas,
+} from '@/utils/reporteNodos'
 import InfoTip from '@/components/InfoTip.vue'
 
 const store = useFireStore()
@@ -36,16 +48,22 @@ const schemaMissing = ref(false)
 const errorMsg = ref('')
 const nodeFilter = ref('all')
 const nodeFilterTouched = ref(false)
-const formDirty = ref(false)
-
-const draftN = ref(1)
-const draftNodeId = ref('')
-const draftInicio = ref(nowLocalInput())
-const draftDistancia = ref('')
-const draftObstaculos = ref('')
-const draftAltura = ref('')
-const draftClima = ref('')
-const draftSituacion = ref('')
+const vistaRegistros = ref<'bitacora' | 'reporte'>('reporte')
+const modoColumnas = ref<ModoColumnas>('campo')
+const modoDatos = ref<'completa' | 'con-datos'>('con-datos')
+const opcionesCantidad = [
+  { label: '100', value: '100' },
+  { label: '250', value: '250' },
+  { label: '500', value: '500' },
+  { label: '1.000', value: '1000' },
+  { label: '2.500', value: '2500' },
+  { label: '5.000', value: '5000' },
+  { label: 'Todos', value: 'todos' },
+]
+const cantidad = ref('1000')
+const totalEnBase = ref(0)
+const filasPorPagina = ref(100)
+const opcionesFilas = [50, 100, 250, 500, 1000]
 
 let channel: RealtimeChannel | null = null
 
@@ -58,6 +76,28 @@ const fieldClass = computed(() =>
 const visibleRows = computed(() =>
   nodeFilter.value === 'all' ? rows.value : rows.value.filter((row) => row.node_id === nodeFilter.value),
 )
+
+const hojasReporte = computed(() =>
+  armarHojas(visibleRows.value, (id, nombre) => nodeLabel(id, nombre)),
+)
+
+const columnasActivas = computed(() => columnasReporte(modoColumnas.value))
+
+const tablasVisibles = computed(() =>
+  tablasReporte(
+    hojasReporte.value,
+    columnasActivas.value,
+    modoDatos.value === 'con-datos' && modoColumnas.value !== 'campo',
+  ),
+)
+
+const totalReporte = computed(() =>
+  tablasVisibles.value.reduce((total, tabla) => total + tabla.hoja.filas.length, 0),
+)
+
+function formatoCantidad(valor: number): string {
+  return new Intl.NumberFormat('es-PE').format(valor)
+}
 
 const latest = computed(() => visibleRows.value[0] ?? null)
 
@@ -73,32 +113,8 @@ const tips = computed(() => {
   }
 })
 
-function nowLocalInput(): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Lima',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date())
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
-}
-
-function limaToIso(local: string): string {
-  return new Date(`${local}:00-05:00`).toISOString()
-}
-
 function nodeLabel(nodeId: string, fallback?: string | null): string {
   return store.nodes.find((node) => node.id === nodeId)?.name ?? fallback ?? nodeId
-}
-
-function optionalNumber(raw: string): number | null {
-  if (!raw.trim()) return null
-  const value = Number(raw)
-  return Number.isFinite(value) ? value : null
 }
 
 function errorText(error: unknown): string {
@@ -122,8 +138,17 @@ function formatPdr(row: BitacoraRow): string {
   return `${formatValue(row.pdr_pct, 1)}%${counts}`
 }
 
-function setDraftDirty() {
-  formDirty.value = true
+let cargaId = 0
+
+async function cargarLecturas(): Promise<void> {
+  const id = ++cargaId
+  const total = await contarBitacora()
+  if (id !== cargaId) return
+  const pedido = cantidad.value === 'todos' ? total : Math.min(Number(cantidad.value), total)
+  const bits = pedido > 0 ? await fetchBitacora(pedido) : []
+  if (id !== cargaId) return
+  totalEnBase.value = total
+  rows.value = bits
 }
 
 async function reloadAll() {
@@ -131,14 +156,15 @@ async function reloadAll() {
   schemaMissing.value = false
   errorMsg.value = ''
   try {
-    const [bits, conds] = await Promise.all([fetchBitacora(), fetchCondiciones()])
-    rows.value = bits
+    const [, conds] = await Promise.all([cargarLecturas(), fetchCondiciones()])
     condiciones.value = conds
-    if (!nodeFilterTouched.value && nodeFilter.value === 'all' && bits[0]) {
-      nodeFilter.value = bits[0].node_id
-    }
-    if (!formDirty.value) {
-      draftN.value = conds.reduce((max, item) => Math.max(max, item.n), 0) + 1
+    if (
+      vistaRegistros.value === 'bitacora' &&
+      !nodeFilterTouched.value &&
+      nodeFilter.value === 'all' &&
+      rows.value[0]
+    ) {
+      nodeFilter.value = rows.value[0].node_id
     }
   } catch (error) {
     if (error instanceof BitacoraSchemaError) schemaMissing.value = true
@@ -150,44 +176,15 @@ async function reloadAll() {
 
 async function reloadReadings() {
   try {
-    rows.value = await fetchBitacora()
+    await cargarLecturas()
   } catch (error) {
     if (error instanceof BitacoraSchemaError) schemaMissing.value = true
   }
 }
 
-async function openPrueba() {
-  if (!draftNodeId.value || !Number.isInteger(draftN.value) || draftN.value < 1) {
-    errorMsg.value = 'Indica el número de prueba y el nodo.'
-    return
-  }
-  saving.value = true
-  errorMsg.value = ''
-  try {
-    await createCondicion({
-      n: draftN.value,
-      node_id: draftNodeId.value,
-      iniciada_at: limaToIso(draftInicio.value),
-      distancia_m: optionalNumber(draftDistancia.value),
-      obstaculos: draftObstaculos.value.trim() || null,
-      altura_m: optionalNumber(draftAltura.value),
-      clima: draftClima.value.trim() || null,
-      situacion_real: draftSituacion.value.trim() || null,
-    })
-    formDirty.value = false
-    draftDistancia.value = ''
-    draftObstaculos.value = ''
-    draftAltura.value = ''
-    draftClima.value = ''
-    draftSituacion.value = ''
-    draftInicio.value = nowLocalInput()
-    await reloadAll()
-  } catch (error) {
-    errorMsg.value = errorText(error)
-  } finally {
-    saving.value = false
-  }
-}
+watch(cantidad, () => {
+  void reloadAll()
+})
 
 async function saveCondicion(item: CondicionPrueba) {
   saving.value = true
@@ -246,23 +243,21 @@ function csvNum(value: number | null, digits = 2): string {
   return value.toFixed(digits).replace('.', ',')
 }
 
-/** Fecha y hora de Lima con milisegundos, para que el CSV permita calcular latencias. */
 function csvDate(iso: string | null): string {
-  const date = parseUtcDate(iso)
-  if (!date || Number.isNaN(date.getTime())) return ''
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-    hourCycle: 'h23',
-  }).formatToParts(date)
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}.${get('fractionalSecond')}`
+  return marcaTiempo(iso)
+}
+
+function verReporte() {
+  vistaRegistros.value = 'reporte'
+  if (!nodeFilterTouched.value) nodeFilter.value = 'all'
+}
+
+function exportExcel() {
+  descargarReporteExcel(tablasVisibles.value)
+}
+
+function exportCsvReporte() {
+  descargarReporteCsv(tablasVisibles.value)
 }
 
 function intOrDash(value: number | null): string {
@@ -513,6 +508,10 @@ const grupos = columnas.reduce<{ nombre: string; span: number }[]>((acc, col) =>
 }, [])
 
 function exportCsv() {
+  if (vistaRegistros.value === 'reporte') {
+    exportCsvReporte()
+    return
+  }
   const headers = columnas.flatMap((col) => col.csvTitulos)
   const lines = visibleRows.value.map((row) =>
     columnas.flatMap((col) => col.csv(row)).map(csvCell).join(';'),
@@ -528,14 +527,6 @@ function exportCsv() {
   link.click()
   URL.revokeObjectURL(url)
 }
-
-watch(
-  () => store.nodes,
-  (nodes) => {
-    if (!draftNodeId.value && nodes[0]) draftNodeId.value = nodes[0].id
-  },
-  { immediate: true },
-)
 
 onMounted(async () => {
   await store.initializeStore()
@@ -571,7 +562,7 @@ onUnmounted(() => {
             altura, clima y la situación real se anotan en la prueba y se unen a los paquetes de ese intervalo.
           </p>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <button
             class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2"
             :class="isDark ? 'border-slate-700 text-slate-300' : 'border-slate-300 text-slate-600'"
@@ -650,132 +641,199 @@ onUnmounted(() => {
         </section>
 
         <section class="glass-panel overflow-hidden">
-          <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h2 class="font-extrabold text-sm" :class="isDark ? 'text-white' : 'text-slate-900'">
-                Registros
-                <span class="ml-2 text-[11px] font-mono font-normal text-slate-500">{{ visibleRows.length }} uplinks · más reciente primero</span>
-              </h2>
-              <p class="text-[11px] text-slate-500 mt-1">
-                Columnas en el orden de la bitácora de campo. Pasa el cursor sobre un encabezado para ver qué mide.
-                Las horas de hoy salen solo con la hora; las de otros días, con la fecha.
-              </p>
-            </div>
-            <select v-model="nodeFilter" class="px-3 py-2 rounded-xl border text-sm font-mono" :class="fieldClass" @change="nodeFilterTouched = true">
-              <option value="all">Todos los nodos</option>
-              <option v-for="node in store.nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
-            </select>
-          </div>
-
-          <div class="overflow-auto max-h-[70vh]">
-            <table class="w-full text-left text-xs whitespace-nowrap border-separate border-spacing-0">
-              <thead class="sticky top-0 z-20 bg-[var(--bg-elevated)]">
-                <tr class="text-[10px] font-mono uppercase tracking-wider">
-                  <th
-                    v-for="(grupo, i) in grupos"
-                    :key="grupo.nombre"
-                    :colspan="grupo.span"
-                    class="px-3 pt-3 pb-1 text-cyan-600 dark:text-cyan-400 border-b border-slate-200 dark:border-slate-800"
-                    :class="i > 0 ? 'border-l' : ''"
+          <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col gap-3">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div>
+                <h2 class="font-extrabold text-sm" :class="isDark ? 'text-white' : 'text-slate-900'">
+                  Registros
+                  <span class="ml-2 text-[11px] font-mono font-normal text-slate-500">
+                    {{ vistaRegistros === 'reporte'
+                      ? `${formatoCantidad(totalReporte)} uplinks · ${tablasVisibles.length} ${tablasVisibles.length === 1 ? 'tabla' : 'tablas'}`
+                      : `${formatoCantidad(visibleRows.length)} uplinks` }}
+                    · {{ formatoCantidad(rows.length) }} cargados de {{ formatoCantidad(totalEnBase) }}
+                  </span>
+                </h2>
+                <p class="text-[11px] text-slate-500 mt-1">
+                  <template v-if="vistaRegistros === 'reporte'">
+                    Una tabla por nodo. Cargar define cuántos uplinks entran desde la base. El paginador define cuántos se ven por página. CSV y Excel llevan los cargados, con las columnas que se ven.
+                  </template>
+                  <template v-else>
+                    Columnas en el orden de la bitácora de campo. Pasa el cursor sobre un encabezado para ver qué mide.
+                  </template>
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="inline-flex rounded-xl border overflow-hidden text-[11px] font-mono font-bold uppercase" :class="isDark ? 'border-slate-700' : 'border-slate-300'">
+                  <button
+                    class="px-3 py-2"
+                    :class="vistaRegistros === 'bitacora'
+                      ? 'bg-cyan-600 text-white'
+                      : (isDark ? 'text-slate-300' : 'text-slate-600')"
+                    @click="vistaRegistros = 'bitacora'"
                   >
-                    {{ grupo.nombre }}
-                  </th>
-                </tr>
-                <tr class="text-[10px] font-mono uppercase tracking-wider text-slate-500">
-                  <th
-                    v-for="(col, i) in columnas"
-                    :key="col.titulo"
-                    :title="col.ayuda"
-                    class="px-3 py-2 border-b border-slate-200 dark:border-slate-800"
-                    :class="[
-                      col.ayuda ? 'cursor-help underline decoration-dotted underline-offset-2' : '',
-                      i === 0 ? 'sticky left-0 z-30 bg-[var(--bg-elevated)]' : '',
-                    ]"
+                    Bitácora
+                  </button>
+                  <button
+                    class="px-3 py-2"
+                    :class="vistaRegistros === 'reporte'
+                      ? 'bg-cyan-600 text-white'
+                      : (isDark ? 'text-slate-300' : 'text-slate-600')"
+                    @click="verReporte"
                   >
-                    {{ col.titulo }}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="row in visibleRows"
-                  :key="row.reading_id"
-                  class="hover:bg-slate-500/5"
+                    Reporte
+                  </button>
+                </div>
+                <label class="inline-flex items-center gap-2 text-[11px] font-mono uppercase text-slate-500">
+                  Cargar
+                  <Select
+                    v-model="cantidad"
+                    :options="opcionesCantidad"
+                    option-label="label"
+                    option-value="value"
+                    size="small"
+                    class="w-32"
+                  />
+                </label>
+                <select v-model="nodeFilter" class="px-3 py-2 rounded-xl border text-sm font-mono" :class="fieldClass" @change="nodeFilterTouched = true">
+                  <option value="all">Todos los nodos</option>
+                  <option v-for="node in store.nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
+                </select>
+                <select
+                  v-if="vistaRegistros === 'reporte'"
+                  v-model="modoColumnas"
+                  class="px-3 py-2 rounded-xl border text-sm font-mono"
+                  :class="fieldClass"
                 >
-                  <td
-                    v-for="(col, i) in columnas"
-                    :key="col.titulo"
-                    class="px-3 py-2 font-mono border-b border-slate-100 dark:border-slate-900/60"
-                    :class="[col.clase?.(row) ?? '', i === 0 ? 'sticky left-0 z-10 bg-[var(--bg-elevated)]' : '']"
-                  >
-                    {{ col.celda(row) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p v-if="!loading && visibleRows.length === 0" class="px-5 py-10 text-center text-sm text-slate-500">
-              Aún no hay uplinks en la bitácora.
-            </p>
+                  <option value="campo">Señal y sensores</option>
+                  <option value="completo">Reporte completo</option>
+                  <option value="sensores">Solo sensores</option>
+                </select>
+                <select
+                  v-if="vistaRegistros === 'reporte'"
+                  v-model="modoDatos"
+                  class="px-3 py-2 rounded-xl border text-sm font-mono"
+                  :class="fieldClass"
+                >
+                  <option value="completa">Data completa</option>
+                  <option value="con-datos">Solo con datos</option>
+                </select>
+                <button
+                  class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2 disabled:opacity-40"
+                  :class="isDark ? 'border-cyan-800 text-cyan-300' : 'border-cyan-300 text-cyan-800'"
+                  :disabled="tablasVisibles.length === 0"
+                  @click="exportCsvReporte"
+                >
+                  <Download class="w-3.5 h-3.5" />
+                  CSV
+                </button>
+                <button
+                  class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2 disabled:opacity-40"
+                  :class="isDark ? 'border-emerald-800 text-emerald-300' : 'border-emerald-300 text-emerald-800'"
+                  :disabled="tablasVisibles.length === 0"
+                  @click="exportExcel"
+                >
+                  <FileSpreadsheet class="w-3.5 h-3.5" />
+                  Excel
+                </button>
+              </div>
+            </div>
           </div>
-        </section>
 
-        <section class="glass-panel p-5 space-y-4">
-          <h2 class="text-sm font-extrabold" :class="isDark ? 'text-white' : 'text-slate-900'">Abrir prueba</h2>
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1">
-              N
-              <input v-model.number="draftN" type="number" min="1" step="1" class="w-full px-3 py-2 rounded-xl border font-mono text-sm" :class="fieldClass" @input="setDraftDirty" />
-            </label>
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1">
-              Nodo
-              <select v-model="draftNodeId" class="w-full px-3 py-2 rounded-xl border text-sm" :class="fieldClass" @change="setDraftDirty">
-                <option v-for="node in store.nodes" :key="node.id" :value="node.id">{{ node.name }}</option>
-              </select>
-            </label>
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1 md:col-span-2">
-              Inicio (hora Lima)
-              <input v-model="draftInicio" type="datetime-local" class="w-full px-3 py-2 rounded-xl border font-mono text-sm" :class="fieldClass" @input="setDraftDirty" />
-            </label>
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1">
-              Distancia (m)
-              <input v-model="draftDistancia" type="number" min="0" step="any" class="w-full px-3 py-2 rounded-xl border font-mono text-sm" :class="fieldClass" @input="setDraftDirty" />
-            </label>
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1">
-              Altura (m)
-              <input v-model="draftAltura" type="number" min="0" step="any" class="w-full px-3 py-2 rounded-xl border font-mono text-sm" :class="fieldClass" @input="setDraftDirty" />
-            </label>
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1">
-              Clima
-              <input v-model="draftClima" list="climas-nueva" placeholder="Sol, nubes, lluvia, tormenta" class="w-full px-3 py-2 rounded-xl border text-sm" :class="fieldClass" @input="setDraftDirty" />
-            </label>
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1">
-              Obstáculos
-              <input v-model="draftObstaculos" placeholder="Edificios, árboles, línea de vista" class="w-full px-3 py-2 rounded-xl border text-sm" :class="fieldClass" @input="setDraftDirty" />
-            </label>
-            <label class="text-[10px] uppercase font-bold text-slate-500 space-y-1 md:col-span-2 xl:col-span-4">
-              Situación real
-              <textarea v-model="draftSituacion" rows="2" placeholder="Describe si en el lugar había una situación de peligro" class="w-full px-3 py-2 rounded-xl border text-sm" :class="fieldClass" @input="setDraftDirty" />
-            </label>
+          <div v-if="vistaRegistros === 'reporte'" class="p-4 space-y-4 bg-slate-100 dark:bg-slate-950/40">
+            <p class="text-[11px] text-slate-600 dark:text-slate-400 max-w-3xl">
+              <template v-if="modoColumnas === 'campo'">
+                Vista inicial: N, RSSI, SNR, temperatura, humedad, MQ135 y las horas de recepción del gateway y de la base.
+              </template>
+              <template v-else-if="modoDatos === 'con-datos'">
+                Cada tabla muestra solo las columnas que tienen algún valor. Las que salen vacías o en 0 no entran, y tampoco el archivo.
+              </template>
+              <template v-else-if="modoColumnas === 'sensores'">
+                Solo las lecturas de los sensores, con N para ordenar cada paquete.
+              </template>
+              <template v-else>
+                Incluye la prueba, el enlace, la temperatura y el resto de sensores, también las columnas vacías.
+              </template>
+            </p>
+            <p v-if="!tablasVisibles.length" class="bg-white text-slate-500 border border-slate-200 rounded-xl px-5 py-10 text-center text-sm">
+              Aún no hay tablas con datos para el reporte.
+            </p>
+            <article
+              v-for="tabla in tablasVisibles"
+              :key="tabla.hoja.nodeId"
+              class="rounded-xl overflow-hidden border"
+              :class="isDark ? 'border-slate-800' : 'border-slate-200 bg-white text-slate-900'"
+            >
+              <div class="px-4 py-3 border-b flex flex-wrap items-baseline justify-between gap-2" :class="isDark ? 'border-slate-800' : 'border-slate-200'">
+                <h3 class="font-extrabold" :class="isDark ? 'text-white' : 'text-slate-900'">{{ tabla.hoja.nombre }}</h3>
+                <p class="text-[11px] font-mono text-slate-500">
+                  {{ formatoCantidad(tabla.hoja.filas.length) }} uplinks
+                </p>
+              </div>
+              <DataTable
+                :value="tabla.hoja.filas"
+                data-key="n"
+                size="small"
+                striped-rows
+                scrollable
+                scroll-height="60vh"
+                paginator
+                v-model:rows="filasPorPagina"
+                :rows-per-page-options="opcionesFilas"
+                paginator-template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown CurrentPageReport"
+                current-page-report-template="{first}–{last} de {totalRecords}"
+              >
+                <Column
+                  v-for="columna in tabla.columnas"
+                  :key="columna.id"
+                  :header="columna.titulo"
+                >
+                  <template #body="{ data }">
+                    <span class="font-mono tabular-nums">{{ columna.valor(data) }}</span>
+                  </template>
+                </Column>
+              </DataTable>
+            </article>
           </div>
-          <datalist id="climas-nueva">
-            <option value="Sol" />
-            <option value="Nubes" />
-            <option value="Lluvia" />
-            <option value="Tormenta" />
-            <option value="Niebla" />
-          </datalist>
-          <p class="text-[11px] text-slate-500">
-            Si atrasas el inicio, los uplinks que ya llegaron desde esa hora entran en esta prueba.
-            El MAC del nodo es su DevEUI. El gas queda como ADC del MQ135, que es el valor MQ del monitor.
-          </p>
-          <button
-            class="px-4 py-2 rounded-xl border text-xs font-mono font-bold uppercase"
-            :class="isDark ? 'border-cyan-800 text-cyan-300' : 'border-cyan-200 text-cyan-800'"
-            :disabled="saving"
-            @click="openPrueba"
-          >
-            {{ saving ? 'Guardando…' : 'Abrir prueba' }}
-          </button>
+
+          <div v-else>
+            <DataTable
+              :value="visibleRows"
+              data-key="reading_id"
+              size="small"
+              scrollable
+              scroll-height="70vh"
+              :loading="loading"
+              paginator
+              v-model:rows="filasPorPagina"
+              :rows-per-page-options="opcionesFilas"
+              paginator-template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown CurrentPageReport"
+              current-page-report-template="{first}–{last} de {totalRecords}"
+            >
+              <template #empty>
+                <p class="px-5 py-10 text-center text-sm text-slate-500">Aún no hay uplinks en la bitácora.</p>
+              </template>
+              <ColumnGroup type="header">
+                <Row>
+                  <Column
+                    v-for="grupo in grupos"
+                    :key="grupo.nombre"
+                    :header="grupo.nombre"
+                    :colspan="grupo.span"
+                  />
+                </Row>
+                <Row>
+                  <Column v-for="col in columnas" :key="col.titulo" :header="col.titulo" />
+                </Row>
+              </ColumnGroup>
+              <Column v-for="col in columnas" :key="col.titulo">
+                <template #body="{ data }">
+                  <span class="font-mono whitespace-nowrap" :class="col.clase?.(data)" :title="col.ayuda">
+                    {{ col.celda(data) }}
+                  </span>
+                </template>
+              </Column>
+            </DataTable>
+          </div>
         </section>
 
         <section v-if="condiciones.length" class="space-y-3">

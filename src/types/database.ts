@@ -80,6 +80,10 @@ export interface BitacoraRow {
   temp_dht_c: number | null
   humidity_pct: number | null
   mq135_adc: number | null
+  temp_bmp_c: number | null
+  pressure_hpa: number | null
+  pitch_deg: number | null
+  roll_deg: number | null
   situacion_real: string | null
   alerta_emitida: boolean
   condicion_id: string | null

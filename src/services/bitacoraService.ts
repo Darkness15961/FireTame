@@ -62,6 +62,10 @@ function mapRow(raw: Record<string, unknown>): BitacoraRow {
     temp_dht_c: asNumber(raw.temp_dht_c),
     humidity_pct: asNumber(raw.humidity_pct),
     mq135_adc: asNumber(raw.mq135_adc),
+    temp_bmp_c: asNumber(raw.temp_bmp_c),
+    pressure_hpa: asNumber(raw.pressure_hpa),
+    pitch_deg: asNumber(raw.pitch_deg),
+    roll_deg: asNumber(raw.roll_deg),
     situacion_real: asText(raw.situacion_real),
     alerta_emitida: asBool(raw.alerta_emitida),
     condicion_id: asText(raw.condicion_id),
@@ -69,18 +73,63 @@ function mapRow(raw: Record<string, unknown>): BitacoraRow {
   }
 }
 
-export async function fetchBitacora(limit = 300): Promise<BitacoraRow[]> {
-  const { data, error } = await supabase
+const PAGINA_CONSULTA = 1000
+
+export async function contarBitacora(): Promise<number> {
+  const { count, error } = await supabase
     .from('bitacora_pruebas')
-    .select('*')
-    .order('received_at', { ascending: false })
-    .limit(limit)
+    .select('reading_id', { count: 'exact', head: true })
 
   if (error) {
     if (isMissingSchema(error)) throw new BitacoraSchemaError()
     throw new Error(error.message)
   }
-  return (data ?? []).map((row) => mapRow(row as Record<string, unknown>))
+  return count ?? 0
+}
+
+export async function fetchBitacora(limit = 300): Promise<BitacoraRow[]> {
+  const pedidos = Math.max(0, Math.floor(limit))
+  const rows: BitacoraRow[] = []
+  for (let desde = 0; rows.length < pedidos; desde += PAGINA_CONSULTA) {
+    const hasta = Math.min(desde + PAGINA_CONSULTA, pedidos) - 1
+    const { data, error } = await supabase
+      .from('bitacora_pruebas')
+      .select('*')
+      .order('received_at', { ascending: false })
+      .range(desde, hasta)
+
+    if (error) {
+      if (isMissingSchema(error)) throw new BitacoraSchemaError()
+      throw new Error(error.message)
+    }
+    const lote = (data ?? []).map((row) => mapRow(row as Record<string, unknown>))
+    rows.push(...lote)
+    if (lote.length < hasta - desde + 1) break
+  }
+  await completarSensores(rows)
+  return rows
+}
+
+/** BMP, presión e inclinación viven en la lectura y no en la vista de la bitácora. */
+async function completarSensores(rows: BitacoraRow[]): Promise<void> {
+  const ids = rows.map((row) => row.reading_id).filter(Boolean)
+  const extras = new Map<string, Record<string, unknown>>()
+  for (let i = 0; i < ids.length; i += 150) {
+    const slice = ids.slice(i, i + 150)
+    const { data, error } = await supabase
+      .from('sensor_readings')
+      .select('id, temp_bmp_c, pressure_hpa, pitch_deg, roll_deg')
+      .in('id', slice)
+    if (error || !data) continue
+    for (const item of data) extras.set(String(item.id), item as Record<string, unknown>)
+  }
+  for (const row of rows) {
+    const extra = extras.get(row.reading_id)
+    row.temp_bmp_c = asNumber(extra?.temp_bmp_c)
+    row.pressure_hpa = asNumber(extra?.pressure_hpa)
+    row.pitch_deg = asNumber(extra?.pitch_deg)
+    row.roll_deg = asNumber(extra?.roll_deg)
+  }
 }
 
 export async function fetchCondiciones(): Promise<CondicionPrueba[]> {
