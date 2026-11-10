@@ -108,7 +108,9 @@ const initMap = () => {
 }
 
 onMounted(() => {
-  store.initializeStore()
+  void store.initializeStore().then(() => {
+    if (store.selectedNodeId) void store.ensureNodeHistory(store.selectedNodeId)
+  })
   initMap()
 })
 
@@ -121,6 +123,7 @@ watch(isDark, (dark) => {
 watch(() => store.nodes, updateMapMarkers, { deep: true })
 
 watch(() => store.selectedNodeId, (newId) => {
+  if (newId) void store.ensureNodeHistory(newId)
   if (!newId || !map) return
   const node = store.nodes.find((n) => n.id === newId)
   if (node && node.lat != null && node.lng != null) {

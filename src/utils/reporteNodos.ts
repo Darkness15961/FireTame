@@ -1,5 +1,5 @@
 import type { BitacoraRow } from '@/types/database'
-import { APP_TIMEZONE, parseUtcDate } from '@/utils/format'
+import { parseUtcDate } from '@/utils/format'
 
 export type ModoColumnas = 'campo' | 'completo' | 'sensores'
 
@@ -78,23 +78,20 @@ export interface HojaNodo {
   filas: FilaReporte[]
 }
 
-/** Marca de tiempo en hora de Lima, con milisegundos: 2026-10-01 10:30:45.088 */
+const LIMA_OFFSET_MS = -5 * 60 * 60 * 1000
+
+function dosDigitos(value: number): string {
+  return value < 10 ? `0${value}` : String(value)
+}
+
+/** Marca de tiempo en hora de Lima, con milisegundos: 2026-10-01 10:30:45.088. Perú no usa horario de verano. */
 export function marcaTiempo(iso: string | null | undefined): string {
   const date = parseUtcDate(iso)
   if (!date || Number.isNaN(date.getTime())) return ''
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: APP_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-    hourCycle: 'h23',
-  }).formatToParts(date)
-  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}:${get('second')}.${get('fractionalSecond')}`
+  const shifted = new Date(date.getTime() + LIMA_OFFSET_MS)
+  const ms = shifted.getUTCMilliseconds()
+  const frac = ms < 10 ? `00${ms}` : ms < 100 ? `0${ms}` : String(ms)
+  return `${shifted.getUTCFullYear()}-${dosDigitos(shifted.getUTCMonth() + 1)}-${dosDigitos(shifted.getUTCDate())} ${dosDigitos(shifted.getUTCHours())}:${dosDigitos(shifted.getUTCMinutes())}:${dosDigitos(shifted.getUTCSeconds())}.${frac}`
 }
 
 function medida(value: number | null, digits: number): number | '' {
@@ -150,7 +147,7 @@ export function tablasReporte(
   })
 }
 
-/** Una hoja por nodo, del uplink más antiguo al más reciente. N vuelve a empezar en cada nodo. */
+/** Una hoja por nodo. Arriba el uplink más reciente. N = 1 sigue siendo el más antiguo de ese nodo. */
 export function armarHojas(
   rows: BitacoraRow[],
   etiqueta: (nodeId: string, nombre: string | null) => string,
@@ -164,31 +161,33 @@ export function armarHojas(
 
   const hojas: HojaNodo[] = []
   for (const [nodeId, lista] of grupos) {
-    const orden = [...lista].sort((a, b) => instante(a) - instante(b))
+    const cronologico = [...lista].sort((a, b) => instante(a) - instante(b))
+    const filas = cronologico.map((row, index) => ({
+      n: index + 1,
+      distancia: medida(row.distancia_m, 1),
+      obstaculos: row.obstaculos ?? '',
+      altura: medida(row.altura_m, 1),
+      clima: row.clima ?? '',
+      rssi: medida(row.rssi, 1),
+      snr: medida(row.snr, 1),
+      crc: crcBit(row.crc_status),
+      tempDht: medida(row.temp_dht_c, 1),
+      humedad: medida(row.humidity_pct, 1),
+      mq135: medida(row.mq135_adc, 0),
+      tempBmp: medida(row.temp_bmp_c, 1),
+      presion: medida(row.pressure_hpa, 1),
+      pitch: medida(row.pitch_deg, 1),
+      roll: medida(row.roll_deg, 1),
+      envioNodo: marcaTiempo(row.node_sent_at),
+      recepcionGateway: marcaTiempo(row.gateway_received_at),
+      recepcionBd: marcaTiempo(row.db_received_at),
+      emisionAlerta: marcaTiempo(row.hora_emision_alerta),
+    }))
+    filas.reverse()
     hojas.push({
       nodeId,
-      nombre: etiqueta(nodeId, orden[0]?.nodo_nombre ?? null),
-      filas: orden.map((row, index) => ({
-        n: index + 1,
-        distancia: medida(row.distancia_m, 1),
-        obstaculos: row.obstaculos ?? '',
-        altura: medida(row.altura_m, 1),
-        clima: row.clima ?? '',
-        rssi: medida(row.rssi, 1),
-        snr: medida(row.snr, 1),
-        crc: crcBit(row.crc_status),
-        tempDht: medida(row.temp_dht_c, 1),
-        humedad: medida(row.humidity_pct, 1),
-        mq135: medida(row.mq135_adc, 0),
-        tempBmp: medida(row.temp_bmp_c, 1),
-        presion: medida(row.pressure_hpa, 1),
-        pitch: medida(row.pitch_deg, 1),
-        roll: medida(row.roll_deg, 1),
-        envioNodo: marcaTiempo(row.node_sent_at),
-        recepcionGateway: marcaTiempo(row.gateway_received_at),
-        recepcionBd: marcaTiempo(row.db_received_at),
-        emisionAlerta: marcaTiempo(row.hora_emision_alerta),
-      })),
+      nombre: etiqueta(nodeId, cronologico[0]?.nodo_nombre ?? null),
+      filas,
     })
   }
 

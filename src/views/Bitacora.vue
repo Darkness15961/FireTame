@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { ClipboardList, Download, FileSpreadsheet, RefreshCw } from 'lucide-vue-next'
 import Column from 'primevue/column'
@@ -13,6 +13,7 @@ import { supabase } from '@/supabase'
 import {
   BitacoraSchemaError,
   closeCondicion,
+  completarPdr,
   contarBitacora,
   fetchBitacora,
   fetchCondiciones,
@@ -39,7 +40,7 @@ import InfoTip from '@/components/InfoTip.vue'
 const store = useFireStore()
 const { isDark } = useTheme()
 
-const rows = ref<BitacoraRow[]>([])
+const rows = shallowRef<BitacoraRow[]>([])
 const condiciones = ref<CondicionPrueba[]>([])
 const loading = ref(false)
 const saving = ref(false)
@@ -59,7 +60,7 @@ const opcionesCantidad = [
   { label: '5.000', value: '5000' },
   { label: 'Todos', value: 'todos' },
 ]
-const cantidad = ref('1000')
+const cantidad = ref('100')
 const totalEnBase = ref(0)
 const exportando = ref(false)
 const filasPorPagina = ref(100)
@@ -139,16 +140,41 @@ function formatPdr(row: BitacoraRow): string {
 }
 
 let cargaId = 0
+const filtroProgramatico = ref(false)
+
+function nodoConsultado(): string | undefined {
+  return nodeFilter.value === 'all' ? undefined : nodeFilter.value
+}
+
+function fijarNodo(id: string) {
+  filtroProgramatico.value = true
+  nodeFilter.value = id
+  void nextTick(() => {
+    filtroProgramatico.value = false
+  })
+}
 
 async function cargarLecturas(): Promise<void> {
   const id = ++cargaId
-  const total = await contarBitacora()
+  const nodo = nodoConsultado()
+  const pedidoFijo = cantidad.value === 'todos' ? null : Number(cantidad.value)
+  const totalPromise = contarBitacora(nodo)
+  const bitsPromise = pedidoFijo != null && pedidoFijo > 0 ? fetchBitacora(pedidoFijo, nodo) : null
+  const total = await totalPromise
   if (id !== cargaId) return
-  const pedido = cantidad.value === 'todos' ? total : Math.min(Number(cantidad.value), total)
-  const bits = pedido > 0 ? await fetchBitacora(pedido) : []
+  const bits = bitsPromise ? await bitsPromise : total > 0 ? await fetchBitacora(total, nodo) : []
   if (id !== cargaId) return
   totalEnBase.value = total
   rows.value = bits
+  if (!bits.length) return
+  void completarPdr(bits)
+    .then(() => {
+      if (id !== cargaId) return
+      rows.value = bits.slice()
+    })
+    .catch((error: unknown) => {
+      console.error('No se pudo calcular el PDR:', error)
+    })
 }
 
 async function reloadAll() {
@@ -164,7 +190,7 @@ async function reloadAll() {
       nodeFilter.value === 'all' &&
       rows.value[0]
     ) {
-      nodeFilter.value = rows.value[0].node_id
+      fijarNodo(rows.value[0].node_id)
     }
   } catch (error) {
     if (error instanceof BitacoraSchemaError) schemaMissing.value = true
@@ -174,16 +200,25 @@ async function reloadAll() {
   }
 }
 
-async function reloadReadings() {
+async function reloadReadings(silencioso = false) {
+  if (!silencioso) loading.value = true
   try {
     await cargarLecturas()
   } catch (error) {
     if (error instanceof BitacoraSchemaError) schemaMissing.value = true
+    else if (!silencioso) errorMsg.value = error instanceof Error ? error.message : 'No se pudo cargar la bitácora'
+  } finally {
+    if (!silencioso) loading.value = false
   }
 }
 
 watch(cantidad, () => {
-  void reloadAll()
+  void reloadReadings()
+})
+
+watch(nodeFilter, () => {
+  if (filtroProgramatico.value) return
+  void reloadReadings()
 })
 
 async function saveCondicion(item: CondicionPrueba) {
@@ -259,9 +294,11 @@ function nombreExport(extension: 'csv' | 'xlsx'): string {
 
 /** Trae toda la historia en la base, no solo lo cargado en pantalla. */
 async function filasDesdeInicio(): Promise<BitacoraRow[]> {
-  const total = await contarBitacora()
-  const todas = total > 0 ? await fetchBitacora(total) : []
-  return nodeFilter.value === 'all' ? todas : todas.filter((row) => row.node_id === nodeFilter.value)
+  const nodo = nodoConsultado()
+  const total = await contarBitacora(nodo)
+  const todas = total > 0 ? await fetchBitacora(total, nodo) : []
+  await completarPdr(todas, true)
+  return todas
 }
 
 async function exportarDesdeInicio(formato: 'csv' | 'excel') {
@@ -559,18 +596,28 @@ function exportCsv() {
   void exportarDesdeInicio('csv')
 }
 
-onMounted(async () => {
-  await store.initializeStore()
-  await reloadAll()
+let recargaTimer: ReturnType<typeof setTimeout> | null = null
+
+function programarRecarga() {
+  if (recargaTimer) clearTimeout(recargaTimer)
+  recargaTimer = setTimeout(() => {
+    recargaTimer = null
+    void reloadReadings(true)
+  }, 500)
+}
+
+onMounted(() => {
+  void reloadAll()
   channel = supabase
     .channel('bitacora-readings')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sensor_readings' }, () => {
-      void reloadReadings()
+      programarRecarga()
     })
     .subscribe()
 })
 
 onUnmounted(() => {
+  if (recargaTimer) clearTimeout(recargaTimer)
   if (channel) void supabase.removeChannel(channel)
 })
 </script>
@@ -587,12 +634,6 @@ onUnmounted(() => {
           <h1 class="text-2xl lg:text-3xl font-extrabold mt-1" :class="isDark ? 'text-white' : 'text-slate-900'">
             Bitácora
           </h1>
-          <p class="text-sm mt-2 max-w-3xl" :class="isDark ? 'text-slate-400' : 'text-slate-600'">
-            Cada fila es un uplink. El tiempo de subida nodo → gateway es el tiempo al aire del paquete.
-            La hora del gateway y la hora en que entra a la base quedan aparte. Distancia, obstáculos,
-            altura, clima y la situación real se anotan en la prueba y se unen a los paquetes de ese intervalo.
-            CSV y Excel bajan todos los uplinks desde el primer registro; el filtro de nodo sí se respeta.
-          </p>
         </div>
         <div class="flex flex-wrap gap-2">
           <button
@@ -694,17 +735,10 @@ onUnmounted(() => {
                       ? `${formatoCantidad(totalReporte)} uplinks · ${tablasVisibles.length} ${tablasVisibles.length === 1 ? 'tabla' : 'tablas'}`
                       : `${formatoCantidad(visibleRows.length)} uplinks` }}
                     · {{ formatoCantidad(rows.length) }} cargados de {{ formatoCantidad(totalEnBase) }}
+                    · más reciente primero
                   </span>
                 </h2>
-                <p class="text-[11px] text-slate-500 mt-1">
-                  <template v-if="vistaRegistros === 'reporte'">
-                    Una tabla por nodo. Cargar define cuántos uplinks se ven en pantalla.
-                  </template>
-                  <template v-else>
-                    Columnas en el orden de la bitácora de campo. Pasa el cursor sobre un encabezado para ver qué mide.
-                  </template>
-                  CSV y Excel descargan todos los uplinks desde el primer registro, no solo los cargados.
-                </p>
+
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <div class="inline-flex rounded-xl border overflow-hidden text-[11px] font-mono font-bold uppercase" :class="isDark ? 'border-slate-700' : 'border-slate-300'">
@@ -728,7 +762,7 @@ onUnmounted(() => {
                   </button>
                 </div>
                 <label class="inline-flex items-center gap-2 text-[11px] font-mono uppercase text-slate-500">
-                  Cargar
+                  Por nodo
                   <Select
                     v-model="cantidad"
                     :options="opcionesCantidad"
@@ -798,9 +832,13 @@ onUnmounted(() => {
                 Incluye la prueba, el enlace, la temperatura y el resto de sensores, también las columnas vacías.
               </template>
             </p>
-            <p v-if="!tablasVisibles.length" class="bg-white text-slate-500 border border-slate-200 rounded-xl px-5 py-10 text-center text-sm">
+            <p v-if="loading" class="bg-white text-slate-500 border border-slate-200 rounded-xl px-5 py-10 text-center text-sm">
+              Cargando uplinks…
+            </p>
+            <p v-else-if="!tablasVisibles.length" class="bg-white text-slate-500 border border-slate-200 rounded-xl px-5 py-10 text-center text-sm">
               Aún no hay tablas con datos para el reporte.
             </p>
+            <template v-else>
             <article
               v-for="tabla in tablasVisibles"
               :key="tabla.hoja.nodeId"
@@ -837,6 +875,7 @@ onUnmounted(() => {
                 </Column>
               </DataTable>
             </article>
+            </template>
           </div>
 
           <div v-else>

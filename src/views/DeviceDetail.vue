@@ -34,6 +34,7 @@ onMounted(async () => {
   await store.initializeStore()
   if (node.value) store.selectedNodeId = node.value.id
   else if (nodeId.value) await store.refreshNode(nodeId.value)
+  if (store.selectedNodeId) await store.ensureNodeHistory(store.selectedNodeId)
 })
 
 const ubicacion = computed(() => {

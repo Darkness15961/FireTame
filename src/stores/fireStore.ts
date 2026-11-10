@@ -164,6 +164,9 @@ function applyReading(node: IoTNode, reading: SensorReading, umbrales: UmbralesA
   node.riskStatus = riskLevelToStatus(risk.level)
 }
 
+let bootPromise: Promise<void> | null = null
+const historialEnCurso = new Set<string>()
+
 export const useFireStore = defineStore('fireStore', {
   state: () => ({
     nodes: [] as IoTNode[],
@@ -216,8 +219,18 @@ export const useFireStore = defineStore('fireStore', {
   },
 
   actions: {
-    async initializeStore() {
-      if (this.nodes.length > 0 || this.initializing) return
+    initializeStore(): Promise<void> {
+      if (this.nodes.length > 0) return Promise.resolve()
+      if (!bootPromise) {
+        bootPromise = this.cargarDatosIniciales().finally(() => {
+          bootPromise = null
+        })
+      }
+      return bootPromise
+    },
+
+    async cargarDatosIniciales() {
+      if (this.initializing) return
       this.initializing = true
 
       if (!isSupabaseConfigured) {
@@ -234,7 +247,6 @@ export const useFireStore = defineStore('fireStore', {
         }
         const dashboard = await fetchNodosDashboard()
         this.nodes = dashboard.map((row) => mapDashboardToNode(row, this.umbrales))
-        await Promise.all(this.nodes.map((node) => this.hydrateNode(node)))
         await this.loadAlertsFromDb()
         this.syncResumen()
       } catch (err) {
@@ -284,6 +296,17 @@ export const useFireStore = defineStore('fireStore', {
       this.nodes = []
       this.initializing = false
       await this.initializeStore()
+    },
+
+    async ensureNodeHistory(nodeId: string) {
+      const node = this.nodes.find((n) => n.id === nodeId)
+      if (!node || node.history.length || historialEnCurso.has(nodeId)) return
+      historialEnCurso.add(nodeId)
+      try {
+        await this.hydrateNode(node)
+      } finally {
+        historialEnCurso.delete(nodeId)
+      }
     },
 
     async hydrateNode(node: IoTNode) {
