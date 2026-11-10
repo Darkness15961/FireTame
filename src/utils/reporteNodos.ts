@@ -216,7 +216,7 @@ function esReporteSensores(columnas: ColumnaReporte[]): boolean {
 
 function nombreArchivo(columnas: ColumnaReporte[], extension: 'xlsx' | 'csv'): string {
   const base = esReporteSensores(columnas) ? 'reporte-sensores-firetame' : 'reporte-nodos-firetame'
-  return `${base}.${extension}`
+  return `${base}-completa.${extension}`
 }
 
 function xml(value: string): string {
@@ -421,18 +421,21 @@ function columnasDelArchivo(tablas: TablaReporte[]): ColumnaReporte[] {
   return COLUMNAS_REPORTE.filter((columna) => ids.has(columna.id))
 }
 
-export function descargarReporteExcel(tablas: TablaReporte[]): void {
+export function descargarReporteExcel(tablas: TablaReporte[], archivo?: string): void {
   if (!tablas.length) return
+  const bytes = bytesReporteExcel(tablas)
+  const copia = new Uint8Array(bytes.byteLength)
+  copia.set(bytes)
   descargarBlob(
-    new Blob([bytesReporteExcel(tablas)], {
+    new Blob([copia], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     }),
-    nombreArchivo(columnasDelArchivo(tablas), 'xlsx'),
+    archivo ?? nombreArchivo(columnasDelArchivo(tablas), 'xlsx'),
   )
 }
 
 /** Un CSV con las mismas columnas que se ven. Cada fila indica el nodo. */
-export function descargarReporteCsv(tablas: TablaReporte[]): void {
+export function descargarReporteCsv(tablas: TablaReporte[], archivo?: string): void {
   if (!tablas.length) return
   const columnas = columnasDelArchivo(tablas)
   const encabezado = ['Nodo', ...columnas.map((columna) => columna.titulo)]
@@ -445,6 +448,6 @@ export function descargarReporteCsv(tablas: TablaReporte[]): void {
     new Blob([`\uFEFF${encabezado.map(csvCelda).join(';')}\n${lineas.join('\n')}`], {
       type: 'text/csv;charset=utf-8',
     }),
-    nombreArchivo(columnas, 'csv'),
+    archivo ?? nombreArchivo(columnas, 'csv'),
   )
 }

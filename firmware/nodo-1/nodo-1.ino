@@ -4,6 +4,7 @@
  * TTN: heltec-wifi-lora-32-v3 / ChipID E4B4B743CA48
  * Pins: DHT=GPIO4, MQ=GPIO2, GY-91 SDA=47 SCL=48
  * Tools: WiFi LoRa 32(V3), LORAWAN_REGION = REGION_US915
+ * DHT22 y MQ135: media móvil de 3 muestras por uplink (DHT con 2 s entre lecturas).
  */
 
 #include "LoRaWan_APP.h"
@@ -31,6 +32,14 @@ static const int PIN_I2C_SDA = 47;
 static const int PIN_I2C_SCL = 48;
 static const int PIN_DHT = 4;
 static const int PIN_MQ135 = 2;
+
+/* Media móvil de 3 muestras. El DHT22 no admite lecturas más rápidas que ~2 s
+ * (la librería Adafruit reenvía el valor anterior si se llama antes). Tres
+ * muestras + 2 s de espera caben en el duty cycle de 60 s; cinco alargarían
+ * la preparación del uplink a ~8 s sin ganancia clara en un sensor de 0,1 °C. */
+static const uint8_t FILTER_SAMPLES = 3;
+static const uint16_t DHT_SAMPLE_GAP_MS = 2000;
+static const uint16_t MQ_SAMPLE_GAP_MS = 5;
 
 #define DHTTYPE DHT22
 DHT dht(PIN_DHT, DHTTYPE);
@@ -195,17 +204,50 @@ static void initSensors() {
   refreshOled();
 }
 
+static uint16_t readMq135Average() {
+  uint32_t acc = 0;
+  for (uint8_t i = 0; i < FILTER_SAMPLES; i++) {
+    acc += analogRead(PIN_MQ135);
+    if (i + 1 < FILTER_SAMPLES) {
+      delay(MQ_SAMPLE_GAP_MS);
+    }
+  }
+  return (uint16_t)((acc + FILTER_SAMPLES / 2) / FILTER_SAMPLES);
+}
+
+static bool readDhtAverage(float &tempC, float &hum) {
+  float tAcc = 0;
+  float hAcc = 0;
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < FILTER_SAMPLES; i++) {
+    if (i > 0) {
+      delay(DHT_SAMPLE_GAP_MS);
+    }
+    const float t = dht.readTemperature();
+    const float h = dht.readHumidity();
+    if (!isnan(t) && !isnan(h)) {
+      tAcc += t;
+      hAcc += h;
+      n++;
+    }
+  }
+  if (n == 0) {
+    return false;
+  }
+  tempC = tAcc / n;
+  hum = hAcc / n;
+  return true;
+}
+
 static SensorReading readSensors() {
   SensorReading r = {};
-  r.dhtTempC = dht.readTemperature();
-  r.dhtHum = dht.readHumidity();
-  r.dhtOk = !(isnan(r.dhtTempC) || isnan(r.dhtHum));
+  r.dhtOk = readDhtAverage(r.dhtTempC, r.dhtHum);
   if (!r.dhtOk) {
     r.dhtTempC = 0;
     r.dhtHum = 0;
   }
 
-  r.mqAdc = (uint16_t)analogRead(PIN_MQ135);
+  r.mqAdc = readMq135Average();
 
   if (bmpOk) {
     r.bmpTempC = bmp.readTemperature();

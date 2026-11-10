@@ -29,7 +29,6 @@ import {
 import {
   armarHojas,
   columnasReporte,
-  descargarReporteCsv,
   descargarReporteExcel,
   marcaTiempo,
   tablasReporte,
@@ -62,6 +61,7 @@ const opcionesCantidad = [
 ]
 const cantidad = ref('1000')
 const totalEnBase = ref(0)
+const exportando = ref(false)
 const filasPorPagina = ref(100)
 const opcionesFilas = [50, 100, 250, 500, 1000]
 
@@ -252,12 +252,60 @@ function verReporte() {
   if (!nodeFilterTouched.value) nodeFilter.value = 'all'
 }
 
+function nombreExport(extension: 'csv' | 'xlsx'): string {
+  const nodo = nodeFilter.value === 'all' ? 'todos-los-nodos' : nodeFilter.value
+  return `firetame-${nodo}-desde-inicio-${marcaTiempo(new Date().toISOString()).slice(0, 10)}.${extension}`
+}
+
+/** Trae toda la historia en la base, no solo lo cargado en pantalla. */
+async function filasDesdeInicio(): Promise<BitacoraRow[]> {
+  const total = await contarBitacora()
+  const todas = total > 0 ? await fetchBitacora(total) : []
+  return nodeFilter.value === 'all' ? todas : todas.filter((row) => row.node_id === nodeFilter.value)
+}
+
+async function exportarDesdeInicio(formato: 'csv' | 'excel') {
+  if (exportando.value) return
+  exportando.value = true
+  errorMsg.value = ''
+  try {
+    const filas = await filasDesdeInicio()
+    if (!filas.length) {
+      errorMsg.value = 'No hay uplinks para exportar.'
+      return
+    }
+    if (formato === 'csv') {
+      const headers = columnas.flatMap((col) => col.csvTitulos)
+      const lines = filas.map((row) =>
+        columnas.flatMap((col) => col.csv(row)).map(csvCell).join(';'),
+      )
+      const blob = new Blob([`\uFEFF${headers.join(';')}\n${lines.join('\n')}`], {
+        type: 'text/csv;charset=utf-8',
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = nombreExport('csv')
+      link.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+    const hojas = armarHojas(filas, (id, nombre) => nodeLabel(id, nombre))
+    const tablas = tablasReporte(hojas, columnasReporte('completo'), false)
+    descargarReporteExcel(tablas, nombreExport('xlsx'))
+  } catch (error) {
+    errorMsg.value = error instanceof Error ? error.message : 'No se pudo exportar.'
+  } finally {
+    exportando.value = false
+  }
+}
+
 function exportExcel() {
-  descargarReporteExcel(tablasVisibles.value)
+  void exportarDesdeInicio('excel')
 }
 
 function exportCsvReporte() {
-  descargarReporteCsv(tablasVisibles.value)
+  void exportarDesdeInicio('csv')
 }
 
 function intOrDash(value: number | null): string {
@@ -508,24 +556,7 @@ const grupos = columnas.reduce<{ nombre: string; span: number }[]>((acc, col) =>
 }, [])
 
 function exportCsv() {
-  if (vistaRegistros.value === 'reporte') {
-    exportCsvReporte()
-    return
-  }
-  const headers = columnas.flatMap((col) => col.csvTitulos)
-  const lines = visibleRows.value.map((row) =>
-    columnas.flatMap((col) => col.csv(row)).map(csvCell).join(';'),
-  )
-
-  const blob = new Blob([`\uFEFF${headers.join(';')}\n${lines.join('\n')}`], {
-    type: 'text/csv;charset=utf-8',
-  })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = 'bitacora-firetame.csv'
-  link.click()
-  URL.revokeObjectURL(url)
+  void exportarDesdeInicio('csv')
 }
 
 onMounted(async () => {
@@ -560,6 +591,7 @@ onUnmounted(() => {
             Cada fila es un uplink. El tiempo de subida nodo → gateway es el tiempo al aire del paquete.
             La hora del gateway y la hora en que entra a la base quedan aparte. Distancia, obstáculos,
             altura, clima y la situación real se anotan en la prueba y se unen a los paquetes de ese intervalo.
+            CSV y Excel bajan todos los uplinks desde el primer registro; el filtro de nodo sí se respeta.
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
@@ -572,13 +604,24 @@ onUnmounted(() => {
             Actualizar
           </button>
           <button
-            class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2"
+            class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2 disabled:opacity-40"
             :class="isDark ? 'border-cyan-800 text-cyan-400' : 'border-cyan-200 text-cyan-700'"
-            :disabled="visibleRows.length === 0"
+            :disabled="exportando || totalEnBase === 0"
+            :title="'Descarga todos los uplinks desde el primer registro'"
             @click="exportCsv"
           >
             <Download class="w-3.5 h-3.5" />
-            CSV
+            {{ exportando ? 'Preparando…' : 'CSV (todo)' }}
+          </button>
+          <button
+            class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2 disabled:opacity-40"
+            :class="isDark ? 'border-emerald-800 text-emerald-300' : 'border-emerald-200 text-emerald-700'"
+            :disabled="exportando || totalEnBase === 0"
+            :title="'Descarga todos los uplinks desde el primer registro'"
+            @click="exportExcel"
+          >
+            <FileSpreadsheet class="w-3.5 h-3.5" />
+            {{ exportando ? 'Preparando…' : 'Excel (todo)' }}
           </button>
         </div>
       </header>
@@ -655,11 +698,12 @@ onUnmounted(() => {
                 </h2>
                 <p class="text-[11px] text-slate-500 mt-1">
                   <template v-if="vistaRegistros === 'reporte'">
-                    Una tabla por nodo. Cargar define cuántos uplinks entran desde la base. El paginador define cuántos se ven por página. CSV y Excel llevan los cargados, con las columnas que se ven.
+                    Una tabla por nodo. Cargar define cuántos uplinks se ven en pantalla.
                   </template>
                   <template v-else>
                     Columnas en el orden de la bitácora de campo. Pasa el cursor sobre un encabezado para ver qué mide.
                   </template>
+                  CSV y Excel descargan todos los uplinks desde el primer registro, no solo los cargados.
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
@@ -720,20 +764,20 @@ onUnmounted(() => {
                 <button
                   class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2 disabled:opacity-40"
                   :class="isDark ? 'border-cyan-800 text-cyan-300' : 'border-cyan-300 text-cyan-800'"
-                  :disabled="tablasVisibles.length === 0"
+                  :disabled="exportando || totalEnBase === 0"
                   @click="exportCsvReporte"
                 >
                   <Download class="w-3.5 h-3.5" />
-                  CSV
+                  {{ exportando ? 'Preparando…' : 'CSV (todo)' }}
                 </button>
                 <button
                   class="px-3 py-2 rounded-xl border text-xs font-mono font-bold uppercase inline-flex items-center gap-2 disabled:opacity-40"
                   :class="isDark ? 'border-emerald-800 text-emerald-300' : 'border-emerald-300 text-emerald-800'"
-                  :disabled="tablasVisibles.length === 0"
+                  :disabled="exportando || totalEnBase === 0"
                   @click="exportExcel"
                 >
                   <FileSpreadsheet class="w-3.5 h-3.5" />
-                  Excel
+                  {{ exportando ? 'Preparando…' : 'Excel (todo)' }}
                 </button>
               </div>
             </div>
